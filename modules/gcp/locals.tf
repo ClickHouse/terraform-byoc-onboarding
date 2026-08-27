@@ -16,6 +16,8 @@ locals {
   )
   clickhouse_crossplane_sa_map = {
     "production" = [
+      # asia-ne1 = asia-northeast1 (Tokyo); this region's SAs use the short cell naming scheme
+      "serviceAccount:asia-ne1-gke-crossplane@dataplane-production.iam.gserviceaccount.com",
       "serviceAccount:asia-southeast1-gke-crossplane@dataplane-production.iam.gserviceaccount.com",
       "serviceAccount:europe-west4-gke-crossplane@dataplane-production.iam.gserviceaccount.com",
       "serviceAccount:us-central1-gke-crossplane@dataplane-production.iam.gserviceaccount.com",
