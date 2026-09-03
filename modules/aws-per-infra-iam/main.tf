@@ -91,7 +91,7 @@ resource "aws_iam_role" "role_k8s_control_plane" {
   name               = "${var.spoken_name}-${var.region}-k8s-control-plane"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_k8s_control_plane_amazon_eks_cluster_policy" {
@@ -147,7 +147,7 @@ resource "aws_iam_role" "role_k8s_worker" {
   name               = "${var.spoken_name}-${var.region}-k8s-worker"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_k8s_worker_amazon_eks_worker_node_policy" {
@@ -183,7 +183,7 @@ resource "aws_iam_role" "role_load_balancer_controller" {
   name               = "${var.spoken_name}-${var.region}-load-balancer-controller"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_controller_iam_policy" {
@@ -483,7 +483,7 @@ resource "aws_iam_role" "role_ebs_csi_driver" {
   name               = "${var.spoken_name}-${var.region}-ebs-csi-driver"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "inline_policy_ebs_csi_driver_ebscsi_driver_policy" {
@@ -748,7 +748,7 @@ resource "aws_iam_role" "role_cluster_autoscaler" {
   name               = "${var.spoken_name}-${var.region}-cluster-autoscaler"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "inline_policy_cluster_autoscaler_eks_autoscaler_policy" {
@@ -780,7 +780,7 @@ resource "aws_iam_role" "role_karpenter_controller" {
   name               = "${var.spoken_name}-${var.region}-karpenter-controller"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_controller_policy" {
@@ -1157,7 +1157,7 @@ resource "aws_iam_role" "role_karpenter_node" {
   name               = "${var.spoken_name}-${var.region}-karpenter-node"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_karpenter_node_amazon_eks_worker_node_policy" {
@@ -1181,7 +1181,7 @@ resource "aws_iam_role" "role_state_exporter" {
   name               = "${var.spoken_name}-${var.region}-state-exporter"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "inline_policy_state_exporter_state_exporter_policy" {
@@ -1206,7 +1206,7 @@ resource "aws_iam_role" "role_thanos" {
   name               = "${var.spoken_name}-${var.region}-thanos"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "inline_policy_thanos_thanos_policy" {
@@ -1235,7 +1235,7 @@ resource "aws_iam_role" "role_clickhouse_scraper" {
   name               = "${var.spoken_name}-${var.region}-clickhouse-scraper"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "inline_policy_clickhouse_scraper_scraper_billing_bucket_assume_role_policy" {
@@ -1255,12 +1255,37 @@ resource "aws_iam_role_policy" "role_policy_clickhouse_scraper_scraper_billing_b
   policy = data.aws_iam_policy_document.inline_policy_clickhouse_scraper_scraper_billing_bucket_assume_role_policy.json
   role   = aws_iam_role.role_clickhouse_scraper.name
 }
+resource "aws_iam_role" "role_kube_metric_forwarder_asc" {
+  assume_role_policy = data.aws_iam_policy_document.eks_pod_identity_assume_policy.json
+  name               = "${var.spoken_name}-${var.region}-kube-metric-forwarder-asc"
+  tags = {
+    clickhouse-byoc = "true"
+    version         = "2.0.324-f7637fc"
+  }
+}
+data "aws_iam_policy_document" "inline_policy_kube_metric_forwarder_asc_kube_metric_forwarder_autoscale_bucket_assume_role_policy" {
+  statement {
+    actions = [
+      "sts:AssumeRole",
+      "sts:TagSession"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:iam::${local.byoc_account_map[var.byoc_env]}:role/*"
+    ]
+  }
+}
+resource "aws_iam_role_policy" "role_policy_kube_metric_forwarder_asc_kube_metric_forwarder_autoscale_bucket_assume_role_policy" {
+  name   = "KubeMetricForwarderAutoscaleBucketAssumeRolePolicy"
+  policy = data.aws_iam_policy_document.inline_policy_kube_metric_forwarder_asc_kube_metric_forwarder_autoscale_bucket_assume_role_policy.json
+  role   = aws_iam_role.role_kube_metric_forwarder_asc.name
+}
 resource "aws_iam_role" "role_clickhouse_s3_access" {
   assume_role_policy = data.aws_iam_policy_document.eks_pod_identity_assume_policy.json
   name               = "${var.spoken_name}-${var.region}-CH-S3-Role"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "billing_bucket_assume_role_policy" {
@@ -1280,6 +1305,24 @@ data "aws_iam_policy_document" "billing_bucket_assume_role_policy" {
 resource "aws_iam_role_policy" "role_policy_clickhouse_s3_access_billing_bucket_assume_role" {
   name   = "BillingBucketAssumeRolePolicy"
   policy = data.aws_iam_policy_document.billing_bucket_assume_role_policy.json
+  role   = aws_iam_role.role_clickhouse_s3_access.name
+}
+data "aws_iam_policy_document" "ch_s3_tde_delegate_assume_policy" {
+  statement {
+    actions = [
+      "sts:AssumeRole",
+      "sts:TagSession"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:iam::*:role/${var.spoken_name}-${var.region}-tde-delegate"
+    ]
+    sid = "ByocTDEAssumeDelegate"
+  }
+}
+resource "aws_iam_role_policy" "role_policy_clickhouse_s3_access_tde_delegate_assume" {
+  name   = "ByocTDEDelegateAssumePolicy"
+  policy = data.aws_iam_policy_document.ch_s3_tde_delegate_assume_policy.json
   role   = aws_iam_role.role_clickhouse_s3_access.name
 }
 data "aws_iam_policy_document" "s3_full_access_policy" {
@@ -1345,7 +1388,7 @@ resource "aws_iam_role" "role_data_plane_management" {
   name               = "${var.spoken_name}-${var.region}-data-plane-mgmt"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "data_plane_management_policy" {
@@ -1392,6 +1435,17 @@ data "aws_iam_policy_document" "data_plane_management_policy" {
   }
   statement {
     actions = [
+      "sts:AssumeRole",
+      "sts:TagSession"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:iam::*:role/${var.spoken_name}-${var.region}-tde-delegate"
+    ]
+    sid = "ByocTDEDelegate"
+  }
+  statement {
+    actions = [
       "sts:GetCallerIdentity",
       "elasticloadbalancing:DescribeLoadBalancers",
       "autoscaling:DescribeAutoScalingGroups",
@@ -1408,6 +1462,55 @@ resource "aws_iam_role_policy" "role_policy_data_plane_mgmt" {
   policy = data.aws_iam_policy_document.data_plane_management_policy.json
   role   = aws_iam_role.role_data_plane_management.name
 }
+data "aws_iam_policy_document" "tde_delegate_assume_role_policy" {
+  statement {
+    actions = [
+      "sts:AssumeRole",
+      "sts:TagSession"
+    ]
+    effect = "Allow"
+    sid    = "ByocTDEDataPlaneMgmt"
+    condition {
+      test = "StringEquals"
+      values = [
+        "${var.external_id}"
+      ]
+      variable = "sts:ExternalId"
+    }
+    principals {
+      identifiers = [
+        "arn:aws:iam::${data.aws_caller_identity.caller.account_id}:role/${var.spoken_name}-${var.region}-data-plane-mgmt"
+      ]
+      type = "AWS"
+    }
+  }
+  statement {
+    actions = [
+      "sts:AssumeRole",
+      "sts:TagSession"
+    ]
+    effect = "Allow"
+    sid    = "ByocTDESharedPodRole"
+    principals {
+      identifiers = [
+        "arn:aws:iam::${data.aws_caller_identity.caller.account_id}:role/${var.spoken_name}-${var.region}-CH-S3-Role"
+      ]
+      type = "AWS"
+    }
+  }
+}
+resource "aws_iam_role" "role_tde_delegate" {
+  assume_role_policy = data.aws_iam_policy_document.tde_delegate_assume_role_policy.json
+  name               = "${var.spoken_name}-${var.region}-tde-delegate"
+  tags = {
+    clickhouse-byoc = "true"
+    version         = "2.0.324-f7637fc"
+  }
+  depends_on = [
+    "aws_iam_role.role_data_plane_management",
+    "aws_iam_role.role_clickhouse_s3_access",
+  ]
+}
 
 output "data_plane_management_role_arn" {
   value = aws_iam_role.role_data_plane_management.arn
@@ -1415,4 +1518,8 @@ output "data_plane_management_role_arn" {
 
 output "ch_s3_role_arn" {
   value = aws_iam_role.role_clickhouse_s3_access.arn
+}
+
+output "tde_delegate_role_arn" {
+  value = aws_iam_role.role_tde_delegate.arn
 }

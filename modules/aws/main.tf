@@ -54,6 +54,12 @@ variable "include_kms_permissions" {
   type        = bool
   default     = false
 }
+
+variable "include_tde_permissions" {
+  description = "Whether to let the ClickHouse Management Role provision the BYOC+TDE shared resources in this account: one TDE delegate IAM role and one default KMS key (KEK) per infra. Runtime Encrypt/Decrypt is NOT granted here — only the TDE delegate role can use the key, via the key policy."
+  type        = bool
+  default     = false
+}
 data "aws_iam_policy_document" "assume_role_policy" {
   statement {
     actions = [
@@ -88,7 +94,7 @@ resource "aws_iam_role" "clickhouse_management_role" {
   name               = var.role_name
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.0.324-f7637fc"
   }
 }
 data "aws_iam_policy_document" "base_policy" {
@@ -424,6 +430,7 @@ data "aws_iam_policy_document" "iam_extended_managed_policy" {
     actions = [
       "iam:AddRoleToInstanceProfile",
       "iam:DeleteInstanceProfile",
+      "iam:TagInstanceProfile",
       "iam:UntagInstanceProfile"
     ]
     effect = "Allow"
@@ -575,6 +582,73 @@ resource "aws_iam_role_policy_attachment" "clickhouse_management_role_policy_kms
   policy_arn = aws_iam_policy.clickhouse_management_role_policy_kms_policy.0.arn
   role       = aws_iam_role.clickhouse_management_role.name
   count      = var.include_kms_permissions ? 1 : 0
+}
+data "aws_iam_policy_document" "kms_tde_policy" {
+  statement {
+    actions = [
+      "kms:CreateKey"
+    ]
+    effect = "Allow"
+    resources = [
+      "*"
+    ]
+    condition {
+      test = "StringEquals"
+      values = [
+        "true"
+      ]
+      variable = "aws:RequestTag/clickhouse-byoc"
+    }
+  }
+  statement {
+    actions = [
+      "kms:TagResource"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:kms:*:*:key/*"
+    ]
+    condition {
+      test = "StringEquals"
+      values = [
+        "true"
+      ]
+      variable = "aws:RequestTag/clickhouse-byoc"
+    }
+  }
+  statement {
+    actions = [
+      "kms:DescribeKey",
+      "kms:GetKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:EnableKeyRotation",
+      "kms:ListResourceTags",
+      "kms:TagResource",
+      "kms:UntagResource"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:kms:*:*:key/*"
+    ]
+    condition {
+      test = "StringEquals"
+      values = [
+        "true"
+      ]
+      variable = "aws:ResourceTag/clickhouse-byoc"
+    }
+  }
+}
+resource "aws_iam_policy" "clickhouse_management_role_policy_kms_tde_policy" {
+  description = "Enable ClickHouseManagementRole to provision the BYOC+TDE shared default KMS key (KEK) in this account"
+  name        = "KMSTDEPolicy"
+  policy      = data.aws_iam_policy_document.kms_tde_policy.json
+  count       = var.include_tde_permissions ? 1 : 0
+}
+resource "aws_iam_role_policy_attachment" "clickhouse_management_role_policy_kms_tde_policy_attachment" {
+  policy_arn = aws_iam_policy.clickhouse_management_role_policy_kms_tde_policy.0.arn
+  role       = aws_iam_role.clickhouse_management_role.name
+  count      = var.include_tde_permissions ? 1 : 0
 }
 data "aws_iam_policy_document" "ec2_managed_policy" {
   statement {
