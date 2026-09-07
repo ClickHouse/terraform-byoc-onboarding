@@ -47,10 +47,10 @@ complete onboarding.
 | Name                            | Description                                                                                                | Type     | Default                      | Required |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------- | ---------------------------- | :------: |
 | `external_id`                   | Unique identifier for role assumption, provided by ClickHouse.                                              | `string` | n/a                          |   yes    |
-| `role_name`                     | Name of the IAM role to create.                                                                              | `string` | `"ClickHouseManagementRole"` |    no    |
 | `include_vpc_write_permissions` | Grant VPC create/delete permissions. Set `false` for bring-your-own-VPC onboarding.                          | `bool`   | `true`                       |    no    |
 | `include_iam_write_permissions` | Grant IAM role/policy write permissions. Set `false` for bring-your-own-IAM onboarding.                      | `bool`   | `true`                       |    no    |
 | `include_kms_permissions`       | Grant KMS permissions for EKS secret envelope encryption. Set `true` only if instructed to use ClickHouse-managed KMS keys. | `bool`   | `false`                      |    no    |
+| `include_tde_permissions`       | Grant KMS permissions for provisioning the BYOC+TDE shared resources (one delegate IAM role + one default KMS key per infra, tag-scoped, no key use). Set `true` before enabling TDE for an infra. | `bool`   | `false`                      |    no    |
 
 > `byoc_env` exists for internal ClickHouse use only. Leave it at its default
 > (`production`). See the note above.

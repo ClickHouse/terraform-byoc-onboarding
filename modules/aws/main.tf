@@ -26,12 +26,6 @@ variable "byoc_env" {
   }
 }
 
-variable "role_name" {
-  default     = "ClickHouseManagementRole"
-  description = "Name of the IAM role to be created"
-  type        = string
-}
-
 variable "external_id" {
   description = "Unique identifier for role assumption"
   type        = string
@@ -51,6 +45,12 @@ variable "include_iam_write_permissions" {
 
 variable "include_kms_permissions" {
   description = "Whether to include KMS permissions"
+  type        = bool
+  default     = false
+}
+
+variable "include_tde_permissions" {
+  description = "Whether to let the ClickHouse Management Role provision the BYOC+TDE shared resources in this account: one TDE delegate IAM role and one default KMS key (KEK) per infra. Runtime Encrypt/Decrypt is NOT granted here — only the TDE delegate role can use the key, via the key policy."
   type        = bool
   default     = false
 }
@@ -85,10 +85,10 @@ data "aws_iam_policy_document" "assume_role_policy" {
 resource "aws_iam_role" "clickhouse_management_role" {
   assume_role_policy = data.aws_iam_policy_document.assume_role_policy.json
   description        = "Role to allow ClickHouse Cloud to manage resources in your account"
-  name               = var.role_name
+  name               = "ClickHouseManagementRole"
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.0.299-f10700f"
+    version         = "2.1.43-441b192"
   }
 }
 data "aws_iam_policy_document" "base_policy" {
@@ -424,6 +424,7 @@ data "aws_iam_policy_document" "iam_extended_managed_policy" {
     actions = [
       "iam:AddRoleToInstanceProfile",
       "iam:DeleteInstanceProfile",
+      "iam:TagInstanceProfile",
       "iam:UntagInstanceProfile"
     ]
     effect = "Allow"
@@ -567,7 +568,7 @@ data "aws_iam_policy_document" "kms_policy" {
 }
 resource "aws_iam_policy" "clickhouse_management_role_policy_kms_policy" {
   description = "Enable ClickHouseManagementRole to configure EKS secret envelop encryption with clickhouse managed KMS keys"
-  name        = "KMSPolicy"
+  name        = "ClickHouse-KMS-Policy"
   policy      = data.aws_iam_policy_document.kms_policy.json
   count       = var.include_kms_permissions ? 1 : 0
 }
@@ -575,6 +576,73 @@ resource "aws_iam_role_policy_attachment" "clickhouse_management_role_policy_kms
   policy_arn = aws_iam_policy.clickhouse_management_role_policy_kms_policy.0.arn
   role       = aws_iam_role.clickhouse_management_role.name
   count      = var.include_kms_permissions ? 1 : 0
+}
+data "aws_iam_policy_document" "kms_tde_policy" {
+  statement {
+    actions = [
+      "kms:CreateKey"
+    ]
+    effect = "Allow"
+    resources = [
+      "*"
+    ]
+    condition {
+      test = "StringEquals"
+      values = [
+        "true"
+      ]
+      variable = "aws:RequestTag/clickhouse-byoc"
+    }
+  }
+  statement {
+    actions = [
+      "kms:TagResource"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:kms:*:*:key/*"
+    ]
+    condition {
+      test = "StringEquals"
+      values = [
+        "true"
+      ]
+      variable = "aws:RequestTag/clickhouse-byoc"
+    }
+  }
+  statement {
+    actions = [
+      "kms:DescribeKey",
+      "kms:GetKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:EnableKeyRotation",
+      "kms:ListResourceTags",
+      "kms:TagResource",
+      "kms:UntagResource"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:kms:*:*:key/*"
+    ]
+    condition {
+      test = "StringEquals"
+      values = [
+        "true"
+      ]
+      variable = "aws:ResourceTag/clickhouse-byoc"
+    }
+  }
+}
+resource "aws_iam_policy" "clickhouse_management_role_policy_kms_tde_policy" {
+  description = "Enable ClickHouseManagementRole to provision the BYOC+TDE shared default KMS key (KEK) in this account"
+  name        = "ClickHouse-KMSTDE-Policy"
+  policy      = data.aws_iam_policy_document.kms_tde_policy.json
+  count       = var.include_tde_permissions ? 1 : 0
+}
+resource "aws_iam_role_policy_attachment" "clickhouse_management_role_policy_kms_tde_policy_attachment" {
+  policy_arn = aws_iam_policy.clickhouse_management_role_policy_kms_tde_policy.0.arn
+  role       = aws_iam_role.clickhouse_management_role.name
+  count      = var.include_tde_permissions ? 1 : 0
 }
 data "aws_iam_policy_document" "ec2_managed_policy" {
   statement {
