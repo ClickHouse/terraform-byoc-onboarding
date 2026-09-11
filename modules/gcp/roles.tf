@@ -644,6 +644,12 @@ resource "google_project_iam_custom_role" "clickhouse_storage_role" {
     "storage.objects.list",
     "storage.objects.get",
     "storage.objects.delete",
+    # The Terraform GCS provider lists a bucket's Anywhere Caches before
+    # emptying it, and skips the whole force_destroy path when that call is
+    # denied — the bucket delete then fails with 409 "not empty" and the object
+    # permissions above never come into play. ClickHouse never creates caches,
+    # so list access alone is enough to get past the check.
+    "storage.anywhereCaches.list",
   ]
 }
 
