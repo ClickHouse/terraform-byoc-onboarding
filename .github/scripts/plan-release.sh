@@ -86,8 +86,38 @@ modules=$(cut -d/ -f1-2 <<<"$changed" | sort -u | paste -sd ',' - | sed 's/,/, /
 changes=$(git log --full-history --no-merges --format='- %s' "$last..HEAD" -- modules/)
 [ -n "$changes" ] || changes=$(git log --no-merges --format='- %s' "$last..HEAD")
 
+# One tag covers every module, so a release name says nothing about which
+# generated content it carries: v2.2.0 was cut for a GCP change and shipped AWS
+# sources from months earlier. List what each module actually contains, for every
+# module rather than only the changed ones, since that is the question being asked
+# of a tag that did not change the module you care about.
+#
+# The generated modules stamp the version of the ClickHouse sources they were
+# built from onto the resources they create. Match only that shape: provider
+# constraints in versions.tf are also spelled `version =`, and `required_version`
+# is excluded by anchoring to the start of the line.
+contents=""
+for dir in modules/*/; do
+  name=${dir#modules/}
+  name=${name%/}
+  # `|| true` because a module without a stamp is the normal case for the
+  # hand-maintained ones, and grep finding nothing would otherwise trip set -e.
+  embedded=$(grep -hoE '^[[:space:]]*version[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9]+"' "$dir"*.tf 2>/dev/null |
+    grep -oE '[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9]+' | sort -u | tr '\n' ',' | sed 's/,$//; s/,/, /g' || true)
+  contents+="| \`${name}\` | ${embedded:-not generated} |"$'\n'
+done
+
 cat >release-notes.md <<EOF
 Automated release. Changed modules: ${modules}
+
+## Module contents
+
+| Module | Generated from |
+| --- | --- |
+${contents}
+\`aws\` and \`aws-per-infra-iam\` are generated from the ClickHouse onboarding
+sources and record the version they were built from; the others are maintained
+in this repository and carry no such version.
 
 ## Changes since ${last}
 
