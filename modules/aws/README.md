@@ -51,9 +51,28 @@ complete onboarding.
 | `include_iam_write_permissions` | Grant IAM role/policy write permissions. Set `false` for bring-your-own-IAM onboarding.                      | `bool`   | `true`                       |    no    |
 | `include_kms_permissions`       | Grant KMS permissions for EKS secret envelope encryption. Set `true` only if instructed to use ClickHouse-managed KMS keys. | `bool`   | `false`                      |    no    |
 | `include_tde_permissions`       | Grant KMS permissions for provisioning the BYOC+TDE shared resources (one delegate IAM role + one default KMS key per infra, tag-scoped, no key use). Set `true` before enabling TDE for an infra. | `bool`   | `false`                      |    no    |
+| `permissions_boundary`          | ARN of an IAM policy to attach as the permissions boundary of `ClickHouseManagementRole`. Set this if your organization mandates boundaries on every role. See the warning below.                  | `string` | `null` (no boundary)         |    no    |
 
 > `byoc_env` exists for internal ClickHouse use only. Leave it at its default
 > (`production`). See the note above.
+
+## Permissions boundary
+
+`permissions_boundary` attaches an existing IAM policy as the boundary of
+`ClickHouseManagementRole`. A boundary **caps** the role and grants nothing, so
+it must be a superset of every permission this module attaches — including the
+optional groups you enable — or ClickHouse Cloud will be unable to manage your
+infrastructure. Widen it whenever a new module release adds permissions.
+
+Two limits are worth knowing before you rely on it:
+
+- A boundary applies to roles only. The `ClickHouse-*-Policy` managed policies,
+  the OIDC provider and any instance profiles this deployment creates are not
+  boundable resources in AWS.
+- Service-linked roles (`iam:CreateServiceLinkedRole` for `eks`,
+  `eks-nodegroup` and `vpc-lattice`) cannot carry a boundary at all — AWS does
+  not accept one on that API. An organization policy that requires a boundary on
+  every `iam:Create*` call needs a carve-out for those.
 
 ## Outputs
 
