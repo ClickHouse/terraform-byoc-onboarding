@@ -6,8 +6,8 @@
 
 This Terraform module provisions the per-infrastructure IAM roles (EKS pod
 identity roles, the ClickHouse S3 access role, and the data-plane management
-role) required to run a ClickHouse BYOC (Bring Your Own Cloud) deployment in a
-specific AWS region.
+role) and the Karpenter node instance profile required to run a ClickHouse BYOC
+(Bring Your Own Cloud) deployment in a specific AWS region.
 
 > [!IMPORTANT]
 > Keep `byoc_env = "production"` (this is the default). Do **not** change it.
@@ -50,9 +50,28 @@ recommended source.
 | `spoken_name` | The spoken name of the BYOC infra, provided by ClickHouse.         | `string` | n/a     |   yes    |
 | `region`      | The AWS region to deploy the BYOC infra into.                      | `string` | n/a     |   yes    |
 | `external_id` | Unique identifier for role assumption, provided by ClickHouse.     | `string` | n/a     |   yes    |
+| `permissions_boundary` | ARN of an IAM policy to attach as the permissions boundary of every role this module creates. Set this if your organization mandates boundaries on every role. See the warning below. | `string` | `null` (no boundary) | no |
 
 > `byoc_env` exists for internal ClickHouse use only. Leave it at its default
 > (`production`). See the note above.
+
+## Permissions boundary
+
+`permissions_boundary` attaches an existing IAM policy as the boundary of all of
+the roles this module creates. A boundary **caps** a role and grants nothing, so
+it must be a superset of every permission this module attaches to these roles —
+they are the roles the data plane itself runs as (EKS control plane and workers,
+Karpenter, the ClickHouse S3 role, the data-plane management role, and others).
+If the boundary is narrower, the failure surfaces at runtime as `AccessDenied`
+inside the deployment rather than at `terraform apply`, so widen it whenever a
+new module release adds permissions.
+
+Note that a boundary applies to roles only — the inline policies, instance
+profiles and the OIDC provider involved in a BYOC deployment are not boundable
+resources in AWS. AWS also does not accept a boundary on
+`iam:CreateServiceLinkedRole`, which ClickHouse Cloud calls for `eks`,
+`eks-nodegroup` and `vpc-lattice`; an organization policy requiring a boundary
+on every `iam:Create*` call needs a carve-out for those.
 
 ## Outputs
 

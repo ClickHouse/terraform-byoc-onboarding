@@ -54,6 +54,12 @@ variable "include_tde_permissions" {
   type        = bool
   default     = false
 }
+
+variable "permissions_boundary" {
+  description = "ARN of an IAM policy to attach as the permissions boundary of the ClickHouse Management Role. Leave unset for no boundary. A boundary only caps the role — it grants nothing — so it must be a superset of every permission this module attaches, or ClickHouse Cloud will fail to manage your infrastructure."
+  type        = string
+  default     = null
+}
 data "aws_iam_policy_document" "assume_role_policy" {
   statement {
     actions = [
@@ -83,12 +89,13 @@ data "aws_iam_policy_document" "assume_role_policy" {
   }
 }
 resource "aws_iam_role" "clickhouse_management_role" {
-  assume_role_policy = data.aws_iam_policy_document.assume_role_policy.json
-  description        = "Role to allow ClickHouse Cloud to manage resources in your account"
-  name               = "ClickHouseManagementRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role_policy.json
+  description          = "Role to allow ClickHouse Cloud to manage resources in your account"
+  name                 = "ClickHouseManagementRole"
+  permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.43-441b192"
+    version         = "2.1.46-797e65c"
   }
 }
 data "aws_iam_policy_document" "base_policy" {
@@ -173,7 +180,8 @@ data "aws_iam_policy_document" "iam_base_managed_policy" {
       "arn:aws:iam::*:role/*-state-exporter",
       "arn:aws:iam::*:role/*-thanos",
       "arn:aws:iam::*:role/*-ebs-csi-driver",
-      "arn:aws:iam::*:role/*-karpenter-controller"
+      "arn:aws:iam::*:role/*-karpenter-controller",
+      "arn:aws:iam::*:role/*-kube-metric-forwarder-asc"
     ]
     condition {
       test = "StringEquals"
