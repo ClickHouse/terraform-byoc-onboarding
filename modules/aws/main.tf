@@ -95,7 +95,7 @@ resource "aws_iam_role" "clickhouse_management_role" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-c74529e"
+    version         = "2.1.49-a81de08"
   }
 }
 data "aws_iam_policy_document" "base_policy" {
