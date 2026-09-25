@@ -4,6 +4,7 @@
 
 
 locals {
+  vpc_owner_account_id = coalesce(one(data.aws_vpc.vpc[*].owner_id), data.aws_caller_identity.caller.account_id)
   byoc_account_map = {
     dev        = 851725629656
     staging    = 767397831528
@@ -46,7 +47,17 @@ variable "permissions_boundary" {
   type        = string
   default     = null
 }
+
+variable "vpc_id" {
+  description = "ID of the VPC the BYOC infra is deployed into. Set it when the VPC is owned by another account and shared into this one through AWS RAM, so Karpenter is allowed to launch nodes into its subnets. Leave unset when this account owns the VPC."
+  type        = string
+  default     = null
+}
 data "aws_caller_identity" "caller" {
+}
+data "aws_vpc" "vpc" {
+  id    = var.vpc_id
+  count = (var.vpc_id != null) ? 1 : 0
 }
 data "aws_iam_policy_document" "eks_pod_identity_assume_policy" {
   statement {
@@ -98,7 +109,7 @@ resource "aws_iam_role" "role_k8s_control_plane" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_k8s_control_plane_amazon_eks_cluster_policy" {
@@ -155,7 +166,7 @@ resource "aws_iam_role" "role_k8s_worker" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_k8s_worker_amazon_eks_worker_node_policy" {
@@ -192,7 +203,7 @@ resource "aws_iam_role" "role_load_balancer_controller" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_controller_iam_policy" {
@@ -493,7 +504,7 @@ resource "aws_iam_role" "role_ebs_csi_driver" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_ebs_csi_driver_ebscsi_driver_policy" {
@@ -759,7 +770,7 @@ resource "aws_iam_role" "role_cluster_autoscaler" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_cluster_autoscaler_eks_autoscaler_policy" {
@@ -792,7 +803,7 @@ resource "aws_iam_role" "role_karpenter_controller" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_controller_policy" {
@@ -807,7 +818,7 @@ data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_con
       "arn:aws:ec2:${var.region}::snapshot/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:spot-instances-request/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:security-group/*",
-      "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:subnet/*",
+      "arn:aws:ec2:${var.region}:${local.vpc_owner_account_id}:subnet/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:capacity-reservation/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:placement-group/*"
     ]
@@ -1170,7 +1181,7 @@ resource "aws_iam_role" "role_karpenter_node" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 resource "aws_iam_instance_profile" "instance_profile_karpenter_node" {
@@ -1178,7 +1189,7 @@ resource "aws_iam_instance_profile" "instance_profile_karpenter_node" {
   role = aws_iam_role.role_karpenter_node.name
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_karpenter_node_amazon_eks_worker_node_policy" {
@@ -1219,7 +1230,7 @@ resource "aws_iam_role" "role_state_exporter" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_state_exporter_state_exporter_policy" {
@@ -1245,7 +1256,7 @@ resource "aws_iam_role" "role_thanos" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_thanos_thanos_policy" {
@@ -1275,7 +1286,7 @@ resource "aws_iam_role" "role_clickhouse_scraper" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_clickhouse_scraper_scraper_billing_bucket_assume_role_policy" {
@@ -1301,7 +1312,7 @@ resource "aws_iam_role" "role_kube_metric_forwarder_asc" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "inline_policy_kube_metric_forwarder_asc_kube_metric_forwarder_autoscale_bucket_assume_role_policy" {
@@ -1327,7 +1338,7 @@ resource "aws_iam_role" "role_clickhouse_s3_access" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "billing_bucket_assume_role_policy" {
@@ -1431,7 +1442,7 @@ resource "aws_iam_role" "role_data_plane_management" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
 }
 data "aws_iam_policy_document" "data_plane_management_policy" {
@@ -1548,7 +1559,7 @@ resource "aws_iam_role" "role_tde_delegate" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.49-ee989f3"
   }
   depends_on = [
     "aws_iam_role.role_data_plane_management",
