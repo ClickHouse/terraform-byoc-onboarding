@@ -4,10 +4,11 @@ output "clickhouse_management_sa_name" {
 }
 
 output "clickhouse_management_sa_roles" {
-  value = [
-    for role_assignment in google_project_iam_member.clickhouse_sa_roles : role_assignment.role
-  ]
-  description = "List of role IDs assigned to the ClickHouse Management Service Account"
+  value = concat(
+    [for role_assignment in google_project_iam_member.clickhouse_sa_roles : role_assignment.role],
+    [google_project_iam_member.clickhouse_sa_storage_objects_role.role],
+  )
+  description = "List of role IDs assigned to the ClickHouse Management Service Account, including clickhouseStorageObjectsRole, which is conditioned on ClickHouse-managed monitoring buckets"
 }
 
 output "shared_vpc_enabled" {

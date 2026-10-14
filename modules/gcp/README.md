@@ -67,6 +67,10 @@ Because a GKE cluster on a Shared VPC has its network in the host project, GKE a
 - The credentials running this module must have IAM admin on **both** the service project (`project_id`) and the host project (`shared_vpc_host_project_id`).
 - If you will use ClickHouse Private Service Connect (PrivateLink), create the PSC NAT subnet in the host project yourself, in the same region and network as the node subnet, with `purpose = PRIVATE_SERVICE_CONNECT` and a primary range of at least /29. ClickHouse only reads and uses it; it will not create it for you. Give its name to ClickHouse when you enable PrivateLink.
 
+### Object access is limited to ClickHouse monitoring buckets
+
+ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.objects.delete` only to empty the ClickHouse-managed monitoring bucket before deleting it during infra teardown. These permissions are in `clickhouseStorageObjectsRole`, bound with an IAM Condition that matches only buckets named `infra-*_gcp_clickhouse_cloud-monitoring` or `testinfra-*_gcp_clickhouse_cloud-monitoring` (ClickHouse names each infra's monitoring bucket `<infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring`, and infra names start with `infra-`) and the objects inside them. ClickHouse has no object access to any other bucket in the project, and nothing needs updating when infras are added or removed.
+
 ## Inputs
 
 | Name | Description | Type | Default | Required |
@@ -84,7 +88,7 @@ Because a GKE cluster on a Shared VPC has its network in the host project, GKE a
 | Name | Description |
 |------|-------------|
 | clickhouse_management_sa_name | The name of the ClickHouse Management Service Account | string |
-| clickhouse_management_sa_roles | List of role IDs assigned to the ClickHouse Management Service Account | list(string) |
+| clickhouse_management_sa_roles | List of role IDs assigned to the ClickHouse Management Service Account, including `clickhouseStorageObjectsRole`, which is conditioned on ClickHouse monitoring buckets | list(string) |
 | shared_vpc_enabled | Whether Shared VPC host-project resources were provisioned (true when `shared_vpc_host_project_id` is set) | bool |
 | shared_vpc_host_role | The ID of the ClickHouse Shared VPC host role granted in the host project, or null when Shared VPC is not used | string |
 | gke_service_agent_member | The service project's GKE service agent granted access to the Shared VPC host project, or null when Shared VPC is not used | string |
@@ -106,7 +110,8 @@ Because a GKE cluster on a Shared VPC has its network in the host project, GKE a
 | google_project_iam_custom_role.clickhouse_vpc_role | Role to allow ClickHouse Cloud to read and use VPC resources, and to create/manage the ClickHouse-owned addresses and PrivateLink (PSC) service attachment it provisions within the VPC |
 | google_project_iam_custom_role.clickhouse_vpc_write_role | Role to allow ClickHouse Cloud to create/delete/modify the VPC network topology (networks, routes, Cloud Routers, subnets); created only when `include_vpc_write_permissions` is true |
 | google_project_iam_custom_role.clickhouse_cluster_role | Role to allow ClickHouse Cloud to manage cluster resources in your project |
-| google_project_iam_custom_role.clickhouse_storage_role | Role to allow ClickHouse Cloud to manage Object Storage resources in your project |
+| google_project_iam_custom_role.clickhouse_storage_role | Role to allow ClickHouse Cloud to manage Object Storage buckets in your project; holds no object-level permissions |
+| google_project_iam_custom_role.clickhouse_storage_objects_role | Role holding `storage.objects.list/get/delete`, used only to empty ClickHouse monitoring buckets during infra teardown |
 | google_project_iam_custom_role.clickhouse_iam_role | Role to allow ClickHouse Cloud to manage IAM resources in your project |
 | google_project_iam_custom_role.clickhouse_tde_role | Role to allow ClickHouse Cloud to manage the BYOC+TDE key ring, default KEK and key IAM bindings (no destroy permissions); created only when `include_tde_permissions` is true |
 | google_project_iam_member.clickhouse_sa_roles["common_role"] | Grants `clickhouseCommonRole` to ClickHouse Management Service Account |
@@ -116,6 +121,7 @@ Because a GKE cluster on a Shared VPC has its network in the host project, GKE a
 | google_project_iam_member.clickhouse_sa_roles["cluster_role"] | Grants `clickhouseClusterRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["storage_role"] | Grants `clickhouseStorageRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["iam_role"] | Grants `clickhouseIamRole` to ClickHouse Management Service Account |
+| google_project_iam_member.clickhouse_sa_storage_objects_role | Grants `clickhouseStorageObjectsRole` to ClickHouse Management Service Account, conditioned on buckets named `infra-*` / `testinfra-*` ending in `_gcp_clickhouse_cloud-monitoring`, and their objects |
 | google_service_account_iam_binding.impersonation_binding | Allows ClickHouse Crossplane Service Account to impersonate ClickHouse Management Service Account |
 | google_project_iam_custom_role.clickhouse_shared_vpc_host_role | [Shared VPC] Role to observe the host network/subnet and use the customer-provided PrivateLink PSC NAT subnet (read + use only) |
 | google_project_iam_member.clickhouse_sa_shared_vpc_host_role | [Shared VPC] Grants `clickhouseSharedVPCHostRole` to ClickHouse Management Service Account in the host project |
