@@ -64,6 +64,19 @@ resource "google_project_iam_member" "clickhouse_sa_roles" {
   member     = google_service_account.clickhouse_management_sa.member
 }
 
+resource "google_project_iam_member" "clickhouse_sa_storage_objects_role" {
+  depends_on = [google_project_service.cloud_resource_manager]
+  project    = var.project_id
+  role       = google_project_iam_custom_role.clickhouse_storage_objects_role.id
+  member     = google_service_account.clickhouse_management_sa.member
+
+  condition {
+    title       = "clickhouse-monitoring-buckets-only"
+    description = "Object access limited to ClickHouse-managed monitoring buckets (infra-*/testinfra-* ending in ${local.clickhouse_monitoring_bucket_suffix})"
+    expression  = local.clickhouse_storage_objects_condition
+  }
+}
+
 # Allow Crossplane to impersonate ClickHouse Management SA
 resource "google_service_account_iam_binding" "impersonation_binding" {
   service_account_id = google_service_account.clickhouse_management_sa.name

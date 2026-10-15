@@ -636,21 +636,22 @@ resource "google_project_iam_custom_role" "clickhouse_storage_role" {
     "storage.buckets.setIamPolicy",
     "storage.buckets.setIpFilter",
     "storage.buckets.update",
-    # Object-level access is required to tear down ClickHouse-managed buckets:
-    # bucket deletion runs with force_destroy=true, which must first list and
-    # delete the objects inside (e.g. the monitoring bucket's Thanos TSDB
-    # blocks) before removing the bucket. Without these, bucket delete 403s and
-    # the infra is stuck terminating (BYOC-768).
-    "storage.objects.list",
-    "storage.objects.get",
-    "storage.objects.delete",
     # The Terraform GCS provider lists a bucket's Anywhere Caches before
     # emptying it, and skips the whole force_destroy path when that call is
     # denied — the bucket delete then fails with 409 "not empty" and the object
-    # permissions above never come into play. ClickHouse never creates caches,
-    # so list access alone is enough to get past the check.
+    # permissions never come into play. ClickHouse never creates caches, so
+    # list access alone is enough to get past the check.
     "storage.anywhereCaches.list",
   ]
+}
+
+# Object-level access, bound only on ClickHouse-managed monitoring buckets (see
+# clickhouse_storage_objects_condition) instead of project-wide via clickhouseStorageRole.
+resource "google_project_iam_custom_role" "clickhouse_storage_objects_role" {
+  role_id     = "clickhouseStorageObjectsRole"
+  title       = "ClickHouse Storage Objects Role"
+  description = "Role to allow ClickHouse Cloud to empty the ClickHouse-managed monitoring buckets it tears down; bound only on those buckets"
+  permissions = local.clickhouse_storage_object_permissions
 }
 
 resource "google_project_iam_custom_role" "clickhouse_iam_role" {
