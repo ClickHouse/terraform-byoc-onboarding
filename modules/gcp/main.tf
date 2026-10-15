@@ -72,7 +72,7 @@ resource "google_project_iam_member" "clickhouse_sa_storage_objects_role" {
 
   condition {
     title       = "clickhouse-monitoring-buckets-only"
-    description = "Object access limited to ClickHouse-managed monitoring buckets (infra-*/testinfra-* ending in ${local.clickhouse_monitoring_bucket_suffix})"
+    description = "Object access limited to ClickHouse-managed monitoring buckets (buckets ending in ${local.clickhouse_monitoring_bucket_suffix})"
     expression  = local.clickhouse_storage_objects_condition
   }
 }
