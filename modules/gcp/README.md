@@ -69,7 +69,7 @@ Because a GKE cluster on a Shared VPC has its network in the host project, GKE a
 
 ### Object access is limited to ClickHouse monitoring buckets
 
-ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.objects.delete` only to empty the ClickHouse-managed monitoring bucket before deleting it during infra teardown. These permissions are in `clickhouseStorageObjectsRole`, bound with an IAM Condition that matches only buckets named `infra-*_gcp_clickhouse_cloud-monitoring` or `testinfra-*_gcp_clickhouse_cloud-monitoring` (ClickHouse names each infra's monitoring bucket `<infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring`, and infra names start with `infra-`) and the objects inside them. ClickHouse has no object access to any other bucket in the project, and nothing needs updating when infras are added or removed.
+ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.objects.delete` only to empty the ClickHouse-managed monitoring bucket before deleting it during infra teardown. These permissions are in `clickhouseStorageObjectsRole`, bound with an IAM Condition that matches only buckets whose name ends in `_gcp_clickhouse_cloud-monitoring` (ClickHouse names each infra's monitoring bucket `<infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring`) and the objects inside them. ClickHouse has no object access to any other bucket in the project, and nothing needs updating when infras are added or removed.
 
 ## Inputs
 
@@ -121,7 +121,7 @@ ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.obje
 | google_project_iam_member.clickhouse_sa_roles["cluster_role"] | Grants `clickhouseClusterRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["storage_role"] | Grants `clickhouseStorageRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["iam_role"] | Grants `clickhouseIamRole` to ClickHouse Management Service Account |
-| google_project_iam_member.clickhouse_sa_storage_objects_role | Grants `clickhouseStorageObjectsRole` to ClickHouse Management Service Account, conditioned on buckets named `infra-*` / `testinfra-*` ending in `_gcp_clickhouse_cloud-monitoring`, and their objects |
+| google_project_iam_member.clickhouse_sa_storage_objects_role | Grants `clickhouseStorageObjectsRole` to ClickHouse Management Service Account, conditioned on buckets ending in `_gcp_clickhouse_cloud-monitoring`, and their objects |
 | google_service_account_iam_binding.impersonation_binding | Allows ClickHouse Crossplane Service Account to impersonate ClickHouse Management Service Account |
 | google_project_iam_custom_role.clickhouse_shared_vpc_host_role | [Shared VPC] Role to observe the host network/subnet and use the customer-provided PrivateLink PSC NAT subnet (read + use only) |
 | google_project_iam_member.clickhouse_sa_shared_vpc_host_role | [Shared VPC] Grants `clickhouseSharedVPCHostRole` to ClickHouse Management Service Account in the host project |

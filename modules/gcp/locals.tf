@@ -26,24 +26,17 @@ locals {
     "storage.objects.delete",
   ]
 
-  # ClickHouse names every infra's monitoring bucket <infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring,
-  # and infra names start with "infra-" ("testinfra-" for test infras). Matching on both covers
-  # every infra in the project without listing them.
-  clickhouse_infra_name_prefixes      = ["infra-", "testinfra-"]
+  # ClickHouse names every infra's monitoring bucket <infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring.
+  # Matching on the suffix alone covers every infra in the project, including custom-named ones,
+  # without listing them.
   clickhouse_monitoring_bucket_suffix = "_gcp_clickhouse_cloud-monitoring"
 
   # storage.objects.list is evaluated against the bucket (projects/_/buckets/BUCKET) and
   # get/delete against each object (projects/_/buckets/BUCKET/objects/OBJECT). The bucket
   # clause must exclude object names, which could themselves end with the suffix.
-  clickhouse_bucket_name_prefix_condition = join(" || ", [
-    for p in local.clickhouse_infra_name_prefixes : "resource.name.startsWith(\"projects/_/buckets/${p}\")"
-  ])
-  clickhouse_object_bucket_prefix_condition = join(" || ", [
-    for p in local.clickhouse_infra_name_prefixes : "resource.name.extract(\"projects/_/buckets/{bucket}/objects/\").startsWith(\"${p}\")"
-  ])
   clickhouse_storage_objects_condition = join(" || ", [
-    "((${local.clickhouse_bucket_name_prefix_condition}) && resource.name.extract(\"projects/_/buckets/{bucket}/objects/\") == \"\" && resource.name.endsWith(\"${local.clickhouse_monitoring_bucket_suffix}\"))",
-    "((${local.clickhouse_object_bucket_prefix_condition}) && resource.name.extract(\"projects/_/buckets/{bucket}/objects/\").endsWith(\"${local.clickhouse_monitoring_bucket_suffix}\"))",
+    "(resource.name.startsWith(\"projects/_/buckets/\") && resource.name.extract(\"projects/_/buckets/{bucket}/objects/\") == \"\" && resource.name.endsWith(\"${local.clickhouse_monitoring_bucket_suffix}\"))",
+    "resource.name.extract(\"projects/_/buckets/{bucket}/objects/\").endsWith(\"${local.clickhouse_monitoring_bucket_suffix}\")",
   ])
 
   clickhouse_crossplane_sa_map = {
