@@ -79,7 +79,7 @@ ClickHouse creates a few service accounts per infra and grants them the roles th
 |------|------------|----------------------|
 | `clickhouseProjectIamGrantRole` | `resourcemanager.projects.setIamPolicy` | `roles/container.defaultNodeServiceAccount`, `roles/container.clusterViewer`, `clickhouseDpMgmtRole` and `clickhouseDpMgmtBucketRole` on the project |
 | `clickhouseServiceAccountIamGrantRole` | `iam.serviceAccounts.setIamPolicy` | `roles/iam.workloadIdentityUser` and `roles/iam.serviceAccountTokenCreator` on service accounts |
-| `clickhouseStorageIamGrantRole` | `storage.buckets.setIamPolicy` | `roles/storage.objectAdmin`, `roles/storage.admin` and `roles/storage.objectViewer`, only on ClickHouse buckets: monitoring buckets (ending in `_gcp_clickhouse_cloud-monitoring`) and instance data and backup buckets (ending in `_gcs_gcp_clickhouse_cloud` or `.gcs.gcp.clickhouse.cloud`) |
+| `clickhouseStorageIamGrantRole` | `storage.buckets.setIamPolicy` | `roles/storage.objectAdmin`, `roles/storage.objectUser`, `roles/storage.legacyBucketReader`, `roles/storage.objectViewer` and `roles/storage.admin`, only on ClickHouse buckets: monitoring buckets (ending in `_gcp_clickhouse_cloud-monitoring`) and instance data and backup buckets (ending in `_gcs_gcp_clickhouse_cloud` or `.gcs.gcp.clickhouse.cloud`) |
 | `clickhouseKmsIamGrantRole` (BYOC+TDE only) | `cloudkms.cryptoKeys.setIamPolicy` | Key use roles, only on the ClickHouse keys `<infra-name>-tde/tde-default-kek` and `<infra-name>-snc/snc-kek` |
 
 IAM Conditions cannot match service account names or restrict who receives a grant, so the service account grants and `iam.serviceAccounts.actAs` apply to every service account in the project. We recommend a project dedicated to ClickHouse BYOC.

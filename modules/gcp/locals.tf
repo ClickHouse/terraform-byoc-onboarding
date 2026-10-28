@@ -51,9 +51,11 @@ locals {
     "roles/iam.serviceAccountTokenCreator", # ClickHouse management plane to its per-infra service accounts
   ]
   clickhouse_grantable_bucket_roles = [
-    "roles/storage.objectAdmin",  # monitoring bucket: the per-infra monitoring service account
-    "roles/storage.admin",        # instance buckets: the ClickHouse server service account
-    "roles/storage.objectViewer", # instance buckets: the ClickHouse server service account, to restore from another instance's backup
+    "roles/storage.objectAdmin",        # monitoring bucket: the per-infra monitoring service account
+    "roles/storage.objectUser",         # instance buckets: the ClickHouse server service account
+    "roles/storage.legacyBucketReader", # instance buckets: the ClickHouse server service account
+    "roles/storage.objectViewer",       # instance buckets: the ClickHouse server service account, to restore from another instance's backup
+    "roles/storage.admin",              # instance buckets: only to remove the grant made before ClickHouse moved to objectUser
   ]
 
   # ClickHouse names instance data buckets <random>_<region>_gcs_gcp_<domain> and backup buckets
