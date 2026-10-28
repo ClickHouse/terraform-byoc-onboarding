@@ -37,7 +37,10 @@ output "gke_shared_vpc_firewall_role" {
   description = "The ID of the firewall role granted to the GKE service agent in the host project, or null when Shared VPC is not used"
 }
 
-output "clickhouse_dp_mgmt_role" {
-  value       = google_project_iam_custom_role.clickhouse_dp_mgmt_role.id
-  description = "The ID of the role ClickHouse grants to the management service account it creates for each infra"
+output "clickhouse_dp_mgmt_roles" {
+  value = [
+    google_project_iam_custom_role.clickhouse_dp_mgmt_role.id,
+    google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role.id,
+  ]
+  description = "The IDs of the roles ClickHouse grants to the management service account it creates for each infra"
 }

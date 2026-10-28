@@ -41,17 +41,32 @@ locals {
 
   # Roles ClickHouse may grant, by where it grants them. IAM Conditions cap each list at 10 roles.
   clickhouse_grantable_project_roles = [
-    "roles/container.defaultNodeServiceAccount",               # the per-infra GKE node service account
-    "roles/container.clusterViewer",                           # ClickHouse management plane, to reach the GKE cluster
-    google_project_iam_custom_role.clickhouse_dp_mgmt_role.id, # the per-infra management service account
+    "roles/container.defaultNodeServiceAccount",                      # the per-infra GKE node service account
+    "roles/container.clusterViewer",                                  # ClickHouse management plane, to reach the GKE cluster
+    google_project_iam_custom_role.clickhouse_dp_mgmt_role.id,        # the per-infra management service account
+    google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role.id, # the per-infra management service account
   ]
   clickhouse_grantable_service_account_roles = [
     "roles/iam.workloadIdentityUser",       # bind ClickHouse workloads to ClickHouse service accounts
     "roles/iam.serviceAccountTokenCreator", # ClickHouse management plane to its per-infra service accounts
   ]
-  clickhouse_grantable_monitoring_bucket_roles = [
-    "roles/storage.objectAdmin", # the per-infra monitoring service account
+  clickhouse_grantable_bucket_roles = [
+    "roles/storage.objectAdmin",  # monitoring bucket: the per-infra monitoring service account
+    "roles/storage.admin",        # instance buckets: the ClickHouse server service account
+    "roles/storage.objectViewer", # instance buckets: the ClickHouse server service account, to restore from another instance's backup
   ]
+
+  # ClickHouse names instance data buckets <random>_<region>_gcs_gcp_<domain> and backup buckets
+  # <random>-backup_<region>_gcs_gcp_<domain>; older ones use "." instead of "_".
+  clickhouse_instance_bucket_suffixes = {
+    "production"  = ["_gcs_gcp_clickhouse_cloud", ".gcs.gcp.clickhouse.cloud"]
+    "staging"     = ["_gcs_gcp_clickhouse-staging_com", ".gcs.gcp.clickhouse-staging.com"]
+    "development" = ["_gcs_gcp_clickhouse-dev_com", ".gcs.gcp.clickhouse-dev.com"]
+  }
+  clickhouse_bucket_suffixes = concat(
+    [local.clickhouse_monitoring_bucket_suffix],
+    local.clickhouse_instance_bucket_suffixes[var.environment],
+  )
   clickhouse_grantable_kms_roles = [
     "roles/cloudkms.cryptoKeyEncrypterDecrypter", # BYOC+TDE delegate
     "roles/cloudkms.viewer",                      # BYOC+TDE delegate
@@ -71,8 +86,8 @@ locals {
 
   clickhouse_storage_iam_grant_condition = join(" && ", [
     "resource.type == 'storage.googleapis.com/Bucket'",
-    "resource.name.endsWith('${local.clickhouse_monitoring_bucket_suffix}')",
-    "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([${join(", ", formatlist("'%s'", local.clickhouse_grantable_monitoring_bucket_roles))}])",
+    "(${join(" || ", formatlist("resource.name.endsWith('%s')", local.clickhouse_bucket_suffixes))})",
+    "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([${join(", ", formatlist("'%s'", local.clickhouse_grantable_bucket_roles))}])",
   ])
 
   clickhouse_kms_iam_grant_condition = join(" && ", [

@@ -112,8 +112,8 @@ resource "google_project_iam_member" "clickhouse_sa_storage_iam_grant_role" {
   member     = google_service_account.clickhouse_management_sa.member
 
   condition {
-    title       = "clickhouse-monitoring-bucket-roles-only"
-    description = "Grant only object admin, only on ClickHouse-managed monitoring buckets (buckets ending in ${local.clickhouse_monitoring_bucket_suffix})"
+    title       = "clickhouse-bucket-roles-only"
+    description = "Grant only bucket roles ClickHouse service accounts need, only on ClickHouse-managed buckets (buckets ending in ${join(", ", local.clickhouse_bucket_suffixes)})"
     expression  = local.clickhouse_storage_iam_grant_condition
   }
 }

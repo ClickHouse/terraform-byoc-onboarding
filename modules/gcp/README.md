@@ -73,13 +73,13 @@ ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.obje
 
 ### Role grants are limited by IAM Conditions
 
-ClickHouse creates a few service accounts per infra and grants them the roles they need. The module does not let ClickHouse create or change custom roles: the one custom role it grants, `clickhouseDpMgmtRole`, is created here and holds no permission to grant roles. Each permission to grant roles sits in its own role, bound with an IAM Condition:
+ClickHouse creates a few service accounts per infra and grants them the roles they need. The module does not let ClickHouse create or change custom roles: the two custom roles it grants, `clickhouseDpMgmtRole` and `clickhouseDpMgmtBucketRole`, are created here and hold no permission to grant roles. Each permission to grant roles sits in its own role, bound with an IAM Condition:
 
 | Role | Permission | ClickHouse can grant |
 |------|------------|----------------------|
-| `clickhouseProjectIamGrantRole` | `resourcemanager.projects.setIamPolicy` | `roles/container.defaultNodeServiceAccount`, `roles/container.clusterViewer` and `clickhouseDpMgmtRole` on the project |
+| `clickhouseProjectIamGrantRole` | `resourcemanager.projects.setIamPolicy` | `roles/container.defaultNodeServiceAccount`, `roles/container.clusterViewer`, `clickhouseDpMgmtRole` and `clickhouseDpMgmtBucketRole` on the project |
 | `clickhouseServiceAccountIamGrantRole` | `iam.serviceAccounts.setIamPolicy` | `roles/iam.workloadIdentityUser` and `roles/iam.serviceAccountTokenCreator` on service accounts |
-| `clickhouseStorageIamGrantRole` | `storage.buckets.setIamPolicy` | `roles/storage.objectAdmin`, only on buckets ending in `_gcp_clickhouse_cloud-monitoring` |
+| `clickhouseStorageIamGrantRole` | `storage.buckets.setIamPolicy` | `roles/storage.objectAdmin`, `roles/storage.admin` and `roles/storage.objectViewer`, only on ClickHouse buckets: monitoring buckets (ending in `_gcp_clickhouse_cloud-monitoring`) and instance data and backup buckets (ending in `_gcs_gcp_clickhouse_cloud` or `.gcs.gcp.clickhouse.cloud`) |
 | `clickhouseKmsIamGrantRole` (BYOC+TDE only) | `cloudkms.cryptoKeys.setIamPolicy` | Key use roles, only on the ClickHouse keys `<infra-name>-tde/tde-default-kek` and `<infra-name>-snc/snc-kek` |
 
 IAM Conditions cannot match service account names or restrict who receives a grant, so the service account grants and `iam.serviceAccounts.actAs` apply to every service account in the project. We recommend a project dedicated to ClickHouse BYOC.
@@ -92,7 +92,7 @@ Applying this version removes these permissions from the existing roles and adds
 - `resourcemanager.projects.setIamPolicy`, `iam.serviceAccounts.setIamPolicy`, `storage.buckets.setIamPolicy` and `cloudkms.cryptoKeys.setIamPolicy` without a condition
 - `compute.subnetworks.setIamPolicy`: ClickHouse grants no roles on subnets
 
-Infras created with v2.x keep running. Each has two per-infra custom roles, `<InfraName>DpMgmtCustomRole` and `<InfraName>DpMgmtGkeConnectCustomRole`. After you upgrade, ClickHouse grants `clickhouseDpMgmtRole` and `roles/container.clusterViewer` in their place and stops managing the old grants. When ClickHouse confirms this for every infra in the project, delete both per-infra roles of each infra.
+Infras created with v2.x keep running. Each has two per-infra custom roles, `<InfraName>DpMgmtCustomRole` and `<InfraName>DpMgmtGkeConnectCustomRole`. After you upgrade, ClickHouse grants `clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole` and `roles/container.clusterViewer` in their place and stops managing the old grants. When ClickHouse confirms this for every infra in the project, delete both per-infra roles of each infra.
 
 ## Inputs
 
@@ -112,7 +112,7 @@ Infras created with v2.x keep running. Each has two per-infra custom roles, `<In
 |------|-------------|
 | clickhouse_management_sa_name | The name of the ClickHouse Management Service Account | string |
 | clickhouse_management_sa_roles | List of role IDs assigned to the ClickHouse Management Service Account, including the conditioned `clickhouseStorageObjectsRole` and `clickhouse*IamGrantRole` roles | list(string) |
-| clickhouse_dp_mgmt_role | The ID of the role ClickHouse grants to the management service account it creates for each infra | string |
+| clickhouse_dp_mgmt_roles | The IDs of the roles ClickHouse grants to the management service account it creates for each infra | list(string) |
 | shared_vpc_enabled | Whether Shared VPC host-project resources were provisioned (true when `shared_vpc_host_project_id` is set) | bool |
 | shared_vpc_host_role | The ID of the ClickHouse Shared VPC host role granted in the host project, or null when Shared VPC is not used | string |
 | gke_service_agent_member | The service project's GKE service agent granted access to the Shared VPC host project, or null when Shared VPC is not used | string |
@@ -139,9 +139,10 @@ Infras created with v2.x keep running. Each has two per-infra custom roles, `<In
 | google_project_iam_custom_role.clickhouse_iam_role | Role to allow ClickHouse Cloud to manage its service accounts in your project, and read IAM policies and custom roles |
 | google_project_iam_custom_role.clickhouse_project_iam_grant_role | Role holding `resourcemanager.projects.setIamPolicy`, bound with a condition on the roles ClickHouse may grant |
 | google_project_iam_custom_role.clickhouse_service_account_iam_grant_role | Role holding `iam.serviceAccounts.setIamPolicy`, bound with a condition on the roles ClickHouse may grant |
-| google_project_iam_custom_role.clickhouse_storage_iam_grant_role | Role holding `storage.buckets.setIamPolicy`, bound with a condition on ClickHouse monitoring buckets and the roles ClickHouse may grant |
+| google_project_iam_custom_role.clickhouse_storage_iam_grant_role | Role holding `storage.buckets.setIamPolicy`, bound with a condition on ClickHouse buckets and the roles ClickHouse may grant |
 | google_project_iam_custom_role.clickhouse_kms_iam_grant_role | Role holding `cloudkms.cryptoKeys.setIamPolicy`, bound with a condition on ClickHouse keys and the roles ClickHouse may grant; created only when `include_tde_permissions` is true |
 | google_project_iam_custom_role.clickhouse_dp_mgmt_role | Role ClickHouse grants to the management service account it creates for each infra; holds no permission to grant roles |
+| google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role | Role ClickHouse grants, conditioned on its instance buckets, to the management service account it creates for each infra; holds no permission to grant roles |
 | google_project_iam_custom_role.clickhouse_tde_role | Role to allow ClickHouse Cloud to manage the BYOC+TDE key ring, default KEK and key IAM bindings (no destroy permissions); created only when `include_tde_permissions` is true |
 | google_project_iam_member.clickhouse_sa_roles["common_role"] | Grants `clickhouseCommonRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["vpc_role"] | Grants `clickhouseVPCRole` to ClickHouse Management Service Account |
@@ -153,7 +154,7 @@ Infras created with v2.x keep running. Each has two per-infra custom roles, `<In
 | google_project_iam_member.clickhouse_sa_storage_objects_role | Grants `clickhouseStorageObjectsRole` to ClickHouse Management Service Account, conditioned on buckets ending in `_gcp_clickhouse_cloud-monitoring`, and their objects |
 | google_project_iam_member.clickhouse_sa_project_iam_grant_role | Grants `clickhouseProjectIamGrantRole` to ClickHouse Management Service Account, conditioned on the project roles ClickHouse may grant |
 | google_project_iam_member.clickhouse_sa_service_account_iam_grant_role | Grants `clickhouseServiceAccountIamGrantRole` to ClickHouse Management Service Account, conditioned on the service account roles ClickHouse may grant |
-| google_project_iam_member.clickhouse_sa_storage_iam_grant_role | Grants `clickhouseStorageIamGrantRole` to ClickHouse Management Service Account, conditioned on ClickHouse monitoring buckets and `roles/storage.objectAdmin` |
+| google_project_iam_member.clickhouse_sa_storage_iam_grant_role | Grants `clickhouseStorageIamGrantRole` to ClickHouse Management Service Account, conditioned on ClickHouse buckets and the bucket roles ClickHouse may grant |
 | google_project_iam_member.clickhouse_sa_kms_iam_grant_role | Grants `clickhouseKmsIamGrantRole` to ClickHouse Management Service Account, conditioned on ClickHouse keys and key use roles; present only when `include_tde_permissions` is true |
 | google_service_account_iam_binding.impersonation_binding | Allows ClickHouse Crossplane Service Account to impersonate ClickHouse Management Service Account |
 | google_project_iam_custom_role.clickhouse_shared_vpc_host_role | [Shared VPC] Role to observe the host network/subnet and use the customer-provided PrivateLink PSC NAT subnet (read + use only) |

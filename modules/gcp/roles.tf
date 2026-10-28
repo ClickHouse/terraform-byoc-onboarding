@@ -656,8 +656,8 @@ resource "google_project_iam_custom_role" "clickhouse_storage_objects_role" {
 
 # Service account lifecycle, plus read access to IAM policies and custom roles. Granting roles
 # lives in the clickhouse*IamGrantRole roles below, each bound with an IAM Condition that limits
-# which roles ClickHouse can grant. ClickHouse cannot create or change custom roles: the one it
-# grants is created by this module (clickhouseDpMgmtRole).
+# which roles ClickHouse can grant. ClickHouse cannot create or change custom roles: the ones it
+# grants are created by this module (clickhouseDpMgmtRole and clickhouseDpMgmtBucketRole).
 resource "google_project_iam_custom_role" "clickhouse_iam_role" {
   role_id     = "clickhouseIamRole"
   title       = "ClickHouse IAM Role"
@@ -735,7 +735,7 @@ resource "google_project_iam_custom_role" "clickhouse_service_account_iam_grant_
 resource "google_project_iam_custom_role" "clickhouse_storage_iam_grant_role" {
   role_id     = "clickhouseStorageIamGrantRole"
   title       = "ClickHouse Storage IAM Grant Role"
-  description = "Role to allow ClickHouse Cloud to grant object access on its monitoring buckets; bound with a condition on those buckets and roles"
+  description = "Role to allow ClickHouse Cloud to grant its service accounts access to the buckets it manages; bound with a condition on those buckets and roles"
   permissions = ["storage.buckets.setIamPolicy"]
 }
 
@@ -747,13 +747,13 @@ resource "google_project_iam_custom_role" "clickhouse_kms_iam_grant_role" {
   permissions = ["cloudkms.cryptoKeys.setIamPolicy"]
 }
 
-# Granted by ClickHouse, at project level, to the management service account it creates for each
-# infra (<infra-name>-dp-mgmt). It holds no permission to grant roles, so ClickHouse cannot use
-# it to widen its own access.
+# The two roles below are granted by ClickHouse, at project level, to the management service
+# account it creates for each infra (<infra-name>-dp-mgmt). Neither holds a permission to grant
+# roles, so ClickHouse cannot use them to widen its own access.
 resource "google_project_iam_custom_role" "clickhouse_dp_mgmt_role" {
   role_id     = "clickhouseDpMgmtRole"
   title       = "ClickHouse Data Plane Management Role"
-  description = "Role ClickHouse Cloud grants to its per-infra management service accounts to manage ClickHouse instance buckets and reach the GKE cluster"
+  description = "Role ClickHouse Cloud grants to its per-infra management service accounts to create ClickHouse instance buckets and reach the GKE cluster"
   permissions = [
     # Load balancer status for PrivateLink
     "compute.forwardingRules.get",
@@ -762,19 +762,26 @@ resource "google_project_iam_custom_role" "clickhouse_dp_mgmt_role" {
     "container.clusters.get",
     "container.clusters.connect",
 
-    # ClickHouse instance data and backup buckets
+    # Create ClickHouse instance data and backup buckets (checked on the project)
     "storage.buckets.create",
-    "storage.buckets.delete",
-    "storage.buckets.get",
-    "storage.buckets.getIamPolicy",
     "storage.buckets.list",
-    "storage.buckets.update",
-    "storage.objects.delete",
-    "storage.objects.list",
 
     # Read ClickHouse service accounts
     "iam.serviceAccounts.get",
-    "iam.serviceAccounts.getIamPolicy",
     "iam.serviceAccounts.list",
+  ]
+}
+
+# ClickHouse grants this one with a condition on its instance data and backup buckets.
+resource "google_project_iam_custom_role" "clickhouse_dp_mgmt_bucket_role" {
+  role_id     = "clickhouseDpMgmtBucketRole"
+  title       = "ClickHouse Data Plane Management Bucket Role"
+  description = "Role ClickHouse Cloud grants to its per-infra management service accounts, conditioned on ClickHouse instance buckets, to manage and empty those buckets"
+  permissions = [
+    "storage.buckets.delete",
+    "storage.buckets.get",
+    "storage.buckets.update",
+    "storage.objects.delete",
+    "storage.objects.list",
   ]
 }
