@@ -39,6 +39,8 @@ locals {
   clickhouse_assignable_role_ids = concat(local.clickhouse_assignable_builtin_role_ids, [
     azurerm_role_definition.clickhouse_byoc_storage_data.role_definition_id,
     azurerm_role_definition.clickhouse_byoc_private_link_approver.role_definition_id,
+    azurerm_role_definition.clickhouse_byoc_storage_control.role_definition_id,
+    azurerm_role_definition.clickhouse_byoc_storage_blob_access.role_definition_id,
   ])
 
   # Roles whose assignments ClickHouse can never remove. Removal is a denylist rather than an
@@ -213,6 +215,52 @@ resource "azurerm_role_definition" "clickhouse_byoc_storage_data" {
       "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write",
       "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/move/action",
       "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/add/action",
+    ]
+    not_actions = []
+  }
+
+  assignable_scopes = [local.subscription_scope]
+}
+
+# Storage account management without account keys or SAS for the ClickHouse management identity,
+# assigned on the infra's storage resource group. Pre-created here so that ClickHouse needs no
+# permission to create role definitions.
+resource "azurerm_role_definition" "clickhouse_byoc_storage_control" {
+  name        = "ClickHouse BYOC Storage Control (${var.environment})"
+  scope       = local.subscription_scope
+  description = "Manage ClickHouse storage accounts without access to account keys or SAS; assigned by ClickHouse to its own per-infra management identity"
+
+  permissions {
+    actions = [
+      "Microsoft.Resources/subscriptions/resourceGroups/read",
+      "Microsoft.Storage/storageAccounts/*",
+    ]
+    not_actions = [
+      "Microsoft.Storage/storageAccounts/listKeys/action",
+      "Microsoft.Storage/storageAccounts/regenerateKey/action",
+      "Microsoft.Storage/storageAccounts/ListAccountSas/action",
+      "Microsoft.Storage/storageAccounts/ListServiceSas/action",
+      "Microsoft.Storage/storageAccounts/localusers/*",
+    ]
+  }
+
+  assignable_scopes = [local.subscription_scope]
+}
+
+# Blob read, write and delete for the ClickHouse management identity. ClickHouse assigns it on the
+# infra's storage resource group with its own condition on the containers it may touch.
+# Pre-created here so that ClickHouse needs no permission to create role definitions.
+resource "azurerm_role_definition" "clickhouse_byoc_storage_blob_access" {
+  name        = "ClickHouse BYOC Storage Blob Access (${var.environment})"
+  scope       = local.subscription_scope
+  description = "Read, write and delete blobs; assigned by ClickHouse to its own per-infra management identity with a condition on ClickHouse containers"
+
+  permissions {
+    actions = []
+    data_actions = [
+      "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read",
+      "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write",
+      "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete",
     ]
     not_actions = []
   }

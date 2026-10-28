@@ -63,7 +63,7 @@ Replace `<version>` with the latest tag from the module's
 
 ## Role assignments ClickHouse can make
 
-ClickHouse creates a few managed identities per infra and assigns them roles on the infra's own resource groups, AKS cluster and Key Vaults. The module does not let ClickHouse create or change role definitions: the two custom roles ClickHouse assigns are created here. Role assignment rights sit in a separate role, `ClickHouse BYOC Role Assignments`, whose assignment carries an [Azure ABAC condition](https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-overview):
+ClickHouse creates a few managed identities per infra and assigns them roles on the infra's own resource groups, AKS cluster and Key Vaults. The module does not let ClickHouse create or change role definitions: the custom roles ClickHouse assigns are created here. Role assignment rights sit in a separate role, `ClickHouse BYOC Role Assignments`, whose assignment carries an [Azure ABAC condition](https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-overview):
 
 - **Create:** only these roles, and never to the ClickHouse service principal itself:
   - Network Contributor
@@ -75,13 +75,15 @@ ClickHouse creates a few managed identities per infra and assigns them roles on 
   - Key Vault Crypto User
   - ClickHouse BYOC Storage Data
   - ClickHouse BYOC Private Link Approver
+  - ClickHouse BYOC Storage Control
+  - ClickHouse BYOC Storage Blob Access
 - **Delete:** any assignment except Owner, Contributor, User Access Administrator and Role Based Access Control Administrator. This lets ClickHouse remove the assignments it made when it tears an infra down, including those of infras created with earlier module versions.
 
 Azure conditions cannot restrict where an assignment is made, so we recommend a subscription dedicated to ClickHouse BYOC.
 
 ## Upgrading from v2.x
 
-Applying this version updates the `ClickHouse BYOC Provisioner` role in place and adds the role assignment role, its conditioned assignment and the two custom roles. The service principal and its Microsoft Graph permission do not change. Infras created with v2.x keep working: their role assignments and per-infra role definitions stay in place, and ClickHouse can still tear them down.
+Applying this version updates the `ClickHouse BYOC Provisioner` role in place and adds the role assignment role, its conditioned assignment and the four custom roles. The service principal and its Microsoft Graph permission do not change. Infras created with v2.x keep working: their role assignments and per-infra role definitions stay in place, and ClickHouse can still tear them down.
 
 The provisioner role loses these actions:
 
@@ -116,6 +118,8 @@ The provisioner role loses these actions:
 | azurerm_role_assignment.role_assignments | Assigns 'ClickHouse BYOC Role Assignments' to the service principal with a condition that limits which roles it can assign (see below) |
 | azurerm_role_definition.clickhouse_byoc_storage_data | Custom role ClickHouse assigns to its own per-infra identities for blob read/write on the infra's storage resource group |
 | azurerm_role_definition.clickhouse_byoc_private_link_approver | Custom role ClickHouse assigns to its own per-infra management identity to read its Private Link Services and approve their private endpoint connections |
+| azurerm_role_definition.clickhouse_byoc_storage_control | Custom role ClickHouse assigns to its own per-infra management identity to manage storage accounts on the infra's storage resource group, without account keys or SAS |
+| azurerm_role_definition.clickhouse_byoc_storage_blob_access | Custom role ClickHouse assigns to its own per-infra management identity, with a condition on ClickHouse containers, for blob read, write and delete |
 | azuread_app_role_assignment.graph_permissions["Application.ReadWrite.OwnedBy"] | Grants Application.ReadWrite.OwnedBy Microsoft Graph permission |
 
 ## Requirements
