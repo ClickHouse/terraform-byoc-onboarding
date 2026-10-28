@@ -11,7 +11,9 @@ resource "google_project_iam_custom_role" "clickhouse_common_role" {
     "compute.zones.get",
     "compute.zones.list",
 
-    # General service account operations
+    # General service account operations. actAs lets ClickHouse run its GKE nodes as the
+    # per-infra node service account it creates. It is project-wide because IAM Conditions
+    # cannot match service account names.
     "iam.serviceAccounts.actAs",
     "iam.serviceAccounts.get",
 
@@ -147,7 +149,6 @@ resource "google_project_iam_custom_role" "clickhouse_vpc_write_role" {
     "compute.subnetworks.deleteTagBinding",
     "compute.subnetworks.expandIpCidrRange",
     "compute.subnetworks.mirror",
-    "compute.subnetworks.setIamPolicy",
     "compute.subnetworks.setPrivateIpGoogleAccess",
     "compute.subnetworks.update",
 
@@ -633,7 +634,6 @@ resource "google_project_iam_custom_role" "clickhouse_storage_role" {
     "storage.buckets.listTagBindings",
     "storage.buckets.relocate",
     "storage.buckets.restore",
-    "storage.buckets.setIamPolicy",
     "storage.buckets.setIpFilter",
     "storage.buckets.update",
     # The Terraform GCS provider lists a bucket's Anywhere Caches before
@@ -654,13 +654,15 @@ resource "google_project_iam_custom_role" "clickhouse_storage_objects_role" {
   permissions = local.clickhouse_storage_object_permissions
 }
 
+# Service account lifecycle, plus read access to IAM policies and custom roles. Granting roles
+# lives in the clickhouse*IamGrantRole roles below, each bound with an IAM Condition that limits
+# which roles ClickHouse can grant. ClickHouse cannot create or change custom roles: the one it
+# grants is created by this module (clickhouseDpMgmtRole).
 resource "google_project_iam_custom_role" "clickhouse_iam_role" {
   role_id     = "clickhouseIamRole"
   title       = "ClickHouse IAM Role"
-  description = "Role to allow ClickHouse Cloud to manage IAM resources in your project"
+  description = "Role to allow ClickHouse Cloud to manage its service accounts in your project"
   permissions = [
-    # Required to grant roles/container.defaultNodeServiceAccount to nodePool SA
-    "resourcemanager.projects.setIamPolicy",
     "resourcemanager.projects.getIamPolicy",
 
     # Manage service accounts
@@ -675,17 +677,12 @@ resource "google_project_iam_custom_role" "clickhouse_iam_role" {
     "iam.serviceAccounts.list",
     "iam.serviceAccounts.listEffectiveTags",
     "iam.serviceAccounts.listTagBindings",
-    "iam.serviceAccounts.setIamPolicy",
     "iam.serviceAccounts.undelete",
     "iam.serviceAccounts.update",
 
-    # Manage custom roles
-    "iam.roles.create",
-    "iam.roles.delete",
+    # Read custom roles, including the per-infra roles of infras created before module v3.0.0
     "iam.roles.get",
     "iam.roles.list",
-    "iam.roles.undelete",
-    "iam.roles.update",
   ]
 }
 
@@ -693,7 +690,7 @@ resource "google_project_iam_custom_role" "clickhouse_iam_role" {
 # key ring, the default KEK, and the delegate's IAM bindings on the key. Deliberately excludes
 # every destructive permission (cryptoKeyVersions.destroy, keyRings/cryptoKeys have no delete):
 # ClickHouse can never destroy key material in your project. The delegate service account and its
-# impersonation bindings are covered by clickhouseIamRole.
+# impersonation bindings are covered by clickhouseIamRole and clickhouseServiceAccountIamGrantRole.
 resource "google_project_iam_custom_role" "clickhouse_tde_role" {
   count       = var.include_tde_permissions ? 1 : 0
   role_id     = "clickhouseTdeRole"
@@ -711,8 +708,73 @@ resource "google_project_iam_custom_role" "clickhouse_tde_role" {
     "cloudkms.cryptoKeys.list",
     "cloudkms.cryptoKeys.update",
 
-    # Key IAM bindings for the TDE delegate (encrypter/decrypter + viewer)
+    # Key IAM policy read; granting on the keys lives in clickhouseKmsIamGrantRole
     "cloudkms.cryptoKeys.getIamPolicy",
-    "cloudkms.cryptoKeys.setIamPolicy",
+  ]
+}
+
+# Granting roles. Each role below holds one setIamPolicy permission and is bound with an IAM
+# Condition (see locals.tf) on the roles ClickHouse may grant with it, and for buckets and keys on
+# the ClickHouse-named resources it may grant them on. IAM Conditions cannot restrict who receives a
+# grant, nor match service account names.
+
+resource "google_project_iam_custom_role" "clickhouse_project_iam_grant_role" {
+  role_id     = "clickhouseProjectIamGrantRole"
+  title       = "ClickHouse Project IAM Grant Role"
+  description = "Role to allow ClickHouse Cloud to grant the project roles its own service accounts need; bound with a condition listing those roles"
+  permissions = ["resourcemanager.projects.setIamPolicy"]
+}
+
+resource "google_project_iam_custom_role" "clickhouse_service_account_iam_grant_role" {
+  role_id     = "clickhouseServiceAccountIamGrantRole"
+  title       = "ClickHouse Service Account IAM Grant Role"
+  description = "Role to allow ClickHouse Cloud to grant workload identity and token creator on service accounts; bound with a condition listing those roles"
+  permissions = ["iam.serviceAccounts.setIamPolicy"]
+}
+
+resource "google_project_iam_custom_role" "clickhouse_storage_iam_grant_role" {
+  role_id     = "clickhouseStorageIamGrantRole"
+  title       = "ClickHouse Storage IAM Grant Role"
+  description = "Role to allow ClickHouse Cloud to grant object access on its monitoring buckets; bound with a condition on those buckets and roles"
+  permissions = ["storage.buckets.setIamPolicy"]
+}
+
+resource "google_project_iam_custom_role" "clickhouse_kms_iam_grant_role" {
+  count       = var.include_tde_permissions ? 1 : 0
+  role_id     = "clickhouseKmsIamGrantRole"
+  title       = "ClickHouse KMS IAM Grant Role"
+  description = "Role to allow ClickHouse Cloud to grant key use on its BYOC+TDE and named collection keys; bound with a condition on those keys and roles"
+  permissions = ["cloudkms.cryptoKeys.setIamPolicy"]
+}
+
+# Granted by ClickHouse, at project level, to the management service account it creates for each
+# infra (<infra-name>-dp-mgmt). It holds no permission to grant roles, so ClickHouse cannot use
+# it to widen its own access.
+resource "google_project_iam_custom_role" "clickhouse_dp_mgmt_role" {
+  role_id     = "clickhouseDpMgmtRole"
+  title       = "ClickHouse Data Plane Management Role"
+  description = "Role ClickHouse Cloud grants to its per-infra management service accounts to manage ClickHouse instance buckets and reach the GKE cluster"
+  permissions = [
+    # Load balancer status for PrivateLink
+    "compute.forwardingRules.get",
+
+    # Reach the GKE control plane over the DNS-based endpoint
+    "container.clusters.get",
+    "container.clusters.connect",
+
+    # ClickHouse instance data and backup buckets
+    "storage.buckets.create",
+    "storage.buckets.delete",
+    "storage.buckets.get",
+    "storage.buckets.getIamPolicy",
+    "storage.buckets.list",
+    "storage.buckets.update",
+    "storage.objects.delete",
+    "storage.objects.list",
+
+    # Read ClickHouse service accounts
+    "iam.serviceAccounts.get",
+    "iam.serviceAccounts.getIamPolicy",
+    "iam.serviceAccounts.list",
   ]
 }

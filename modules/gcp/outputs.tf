@@ -6,9 +6,15 @@ output "clickhouse_management_sa_name" {
 output "clickhouse_management_sa_roles" {
   value = concat(
     [for role_assignment in google_project_iam_member.clickhouse_sa_roles : role_assignment.role],
-    [google_project_iam_member.clickhouse_sa_storage_objects_role.role],
+    [
+      google_project_iam_member.clickhouse_sa_storage_objects_role.role,
+      google_project_iam_member.clickhouse_sa_project_iam_grant_role.role,
+      google_project_iam_member.clickhouse_sa_service_account_iam_grant_role.role,
+      google_project_iam_member.clickhouse_sa_storage_iam_grant_role.role,
+    ],
+    google_project_iam_member.clickhouse_sa_kms_iam_grant_role[*].role,
   )
-  description = "List of role IDs assigned to the ClickHouse Management Service Account, including clickhouseStorageObjectsRole, which is conditioned on ClickHouse-managed monitoring buckets"
+  description = "List of role IDs assigned to the ClickHouse Management Service Account, including the conditioned clickhouseStorageObjectsRole and clickhouse*IamGrantRole roles"
 }
 
 output "shared_vpc_enabled" {
@@ -29,4 +35,9 @@ output "gke_service_agent_member" {
 output "gke_shared_vpc_firewall_role" {
   value       = one(google_project_iam_custom_role.clickhouse_gke_shared_vpc_firewall_role[*].id)
   description = "The ID of the firewall role granted to the GKE service agent in the host project, or null when Shared VPC is not used"
+}
+
+output "clickhouse_dp_mgmt_role" {
+  value       = google_project_iam_custom_role.clickhouse_dp_mgmt_role.id
+  description = "The ID of the role ClickHouse grants to the management service account it creates for each infra"
 }

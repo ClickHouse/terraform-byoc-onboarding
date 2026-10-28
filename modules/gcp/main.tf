@@ -77,6 +77,62 @@ resource "google_project_iam_member" "clickhouse_sa_storage_objects_role" {
   }
 }
 
+# Role grants, each conditioned on the roles (and for buckets and keys, the resources) ClickHouse
+# needs to grant
+resource "google_project_iam_member" "clickhouse_sa_project_iam_grant_role" {
+  depends_on = [google_project_service.cloud_resource_manager]
+  project    = var.project_id
+  role       = google_project_iam_custom_role.clickhouse_project_iam_grant_role.id
+  member     = google_service_account.clickhouse_management_sa.member
+
+  condition {
+    title       = "clickhouse-project-roles-only"
+    description = "Grant only the project roles ClickHouse service accounts need"
+    expression  = local.clickhouse_project_iam_grant_condition
+  }
+}
+
+resource "google_project_iam_member" "clickhouse_sa_service_account_iam_grant_role" {
+  depends_on = [google_project_service.cloud_resource_manager]
+  project    = var.project_id
+  role       = google_project_iam_custom_role.clickhouse_service_account_iam_grant_role.id
+  member     = google_service_account.clickhouse_management_sa.member
+
+  condition {
+    title       = "clickhouse-service-account-roles-only"
+    description = "Grant only workload identity and token creator on service accounts"
+    expression  = local.clickhouse_service_account_iam_grant_condition
+  }
+}
+
+resource "google_project_iam_member" "clickhouse_sa_storage_iam_grant_role" {
+  depends_on = [google_project_service.cloud_resource_manager]
+  project    = var.project_id
+  role       = google_project_iam_custom_role.clickhouse_storage_iam_grant_role.id
+  member     = google_service_account.clickhouse_management_sa.member
+
+  condition {
+    title       = "clickhouse-monitoring-bucket-roles-only"
+    description = "Grant only object admin, only on ClickHouse-managed monitoring buckets (buckets ending in ${local.clickhouse_monitoring_bucket_suffix})"
+    expression  = local.clickhouse_storage_iam_grant_condition
+  }
+}
+
+resource "google_project_iam_member" "clickhouse_sa_kms_iam_grant_role" {
+  count = var.include_tde_permissions ? 1 : 0
+
+  depends_on = [google_project_service.cloud_resource_manager]
+  project    = var.project_id
+  role       = google_project_iam_custom_role.clickhouse_kms_iam_grant_role[0].id
+  member     = google_service_account.clickhouse_management_sa.member
+
+  condition {
+    title       = "clickhouse-kms-key-roles-only"
+    description = "Grant only key use, only on ClickHouse BYOC+TDE and named collection keys"
+    expression  = local.clickhouse_kms_iam_grant_condition
+  }
+}
+
 # Allow Crossplane to impersonate ClickHouse Management SA
 resource "google_service_account_iam_binding" "impersonation_binding" {
   service_account_id = google_service_account.clickhouse_management_sa.name
