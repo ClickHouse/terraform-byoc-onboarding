@@ -68,6 +68,7 @@ ClickHouse creates a few managed identities per infra and assigns them roles on 
 - **Create:** only these roles, and never to the ClickHouse service principal itself:
   - Network Contributor
   - Azure Kubernetes Service Cluster Admin Role
+  - Azure Kubernetes Service RBAC Cluster Admin
   - Storage Account Contributor
   - Storage Blob Data Contributor
   - Managed Identity Contributor

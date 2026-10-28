@@ -28,7 +28,8 @@ locals {
   # the custom roles below, these are the only roles ClickHouse can assign.
   clickhouse_assignable_builtin_role_ids = [
     "4d97b98b-1d4f-4787-a291-c67834d212e7", # Network Contributor: AKS cluster principal, on the infra's resource group
-    "0ab0b1a8-8aac-4efd-b8c2-3ee1fb270be8", # Azure Kubernetes Service Cluster Admin Role: management identity, on the infra's AKS cluster
+    "0ab0b1a8-8aac-4efd-b8c2-3ee1fb270be8", # Azure Kubernetes Service Cluster Admin Role: management identity, on the infra's AKS cluster (local accounts)
+    "b1ff04bb-8a4e-4dc4-8eb5-8693973ce19b", # Azure Kubernetes Service RBAC Cluster Admin: ClickHouse identities, on the infra's AKS cluster (Microsoft Entra ID auth)
     "17d1049b-9a84-46fb-8f53-869881c3d3ab", # Storage Account Contributor: management identity, on the infra's storage resource group
     "ba92f5b4-2d11-453d-a403-e96b0029c9fe", # Storage Blob Data Contributor: management identity, on the infra's storage resource group
     "e40ec5ca-96e0-45a2-b4ff-59039f2c2b59", # Managed Identity Contributor: management identity, on the infra's resource group
