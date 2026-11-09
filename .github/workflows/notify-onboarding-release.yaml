@@ -1,0 +1,76 @@
+name: Notify onboarding release
+
+# Tells data-plane-infrastructure that a new release is out, so it can open its
+# PR bumping the BYOC onboarding wrapper modules straight away.
+#
+# That PR is what carries an onboarding change into the dev test accounts: the dev
+# terragrunt units source their wrapper from the working tree, so bumping the
+# wrapper's ?ref= changes what they resolve to, Atlantis plans them on the PR, and
+# applying it deploys. See .github/workflows/byoc-bump-onboarding-module.yaml in
+# data-plane-infrastructure.
+#
+# That workflow also polls on a weekday-morning schedule, so this is purely a
+# latency improvement — without it a release is picked up the next morning rather
+# than within a minute. If this job fails the release is unaffected; it has already
+# been published by auto-release.yaml at that point.
+#
+# Fires for hand-cut releases as well as automated ones, which is deliberate: the
+# README notes that tagging by hand is still supported for releases needing curated
+# notes, and those should reach dev the same way.
+#
+# PREREQUISITE: this needs WORKFLOW_AUTH_APP_ID and WORKFLOW_AUTH_PRIVATE_KEY to be
+# readable from this repository. They are organization secrets today but are not
+# shared with it, so until someone with organization admin grants access the job
+# will fail at the token step. The consuming workflow's schedule keeps working
+# regardless.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-onboarding-release
+  cancel-in-progress: false
+
+env:
+  TARGET_REPO: ClickHouse/data-plane-infrastructure
+
+jobs:
+  dispatch:
+    name: Dispatch to data-plane-infrastructure
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to a SHA rather than a tag, unlike the other actions in this
+      # repository: this one mints a credential with write access to another
+      # repository, so it is worth not tracking a mutable tag. Same pin that
+      # data-plane-infrastructure already uses.
+      - name: Generate token
+        id: generate-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.WORKFLOW_AUTH_APP_ID }}
+          private-key: ${{ secrets.WORKFLOW_AUTH_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: data-plane-infrastructure
+          # The repository dispatch API requires write access to Contents on the
+          # target repository; nothing else is needed.
+          permission-contents: write
+
+      - name: Send repository dispatch
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          # Passed through the environment rather than interpolated into the script:
+          # a release name or tag is user-supplied, and `${{ }}` inside a run block
+          # is substituted before the shell sees it.
+          TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+          echo "::notice::notifying ${TARGET_REPO} of release ${TAG}"
+          gh api --method POST "repos/${TARGET_REPO}/dispatches" \
+            -f "event_type=byoc-onboarding-released" \
+            -f "client_payload[tag]=${TAG}" \
+            -f "client_payload[release_url]=${RELEASE_URL}"
