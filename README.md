@@ -7,6 +7,7 @@ See terraform modules for supported cloud:
 - [AWS](./modules/aws/)
 - [GCP](./modules/gcp/)
 - [Azure](./modules/azure/)
+  - [Azure per-infra IAM](./modules/azure-per-infra-iam/) (bring-your-own-IAM)
 
 ## Releases
 
