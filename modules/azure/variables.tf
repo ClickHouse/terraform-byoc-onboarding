@@ -15,6 +15,12 @@ variable "include_vpc_write_permissions" {
   default     = true
 }
 
+variable "include_iam_write_permissions" {
+  type        = bool
+  description = "(Optional) Whether to let ClickHouse create and delete the per-infra managed identities, custom role definitions and role assignments in this subscription. Set to `false` when you bring your own IAM (BYO-IAM): you then pre-create them per infra with the `azure-per-infra-iam` module, and ClickHouse only reads them, binds them to its workloads through federated identity credentials, and assigns a fixed set of built-in roles (Network Contributor, Azure Kubernetes Service Cluster Admin Role, Key Vault Crypto User) on resources that only exist once ClickHouse creates them. Defaults to true."
+  default     = true
+}
+
 variable "include_tde_permissions" {
   type        = bool
   description = "(Optional) Whether to let ClickHouse provision the BYOC+TDE shared resources in this subscription: one TDE delegate managed identity and one default Key Vault + RSA key (KEK) per infra, wrapping the data-encryption keys of TDE-enabled ClickHouse instances. Deliberately grants no vault/key delete or purge and no cryptographic use of the keys — ClickHouse can never destroy or use your key material with this role. Defaults to false; enable before turning on TDE for an infra."

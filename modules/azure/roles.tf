@@ -40,6 +40,69 @@ locals {
     "Microsoft.Network/natGateways/join/action",
   ]
 
+  # ClickHouse-managed IAM actions: ClickHouse creates and deletes the per-infra user-assigned
+  # managed identities, custom role definitions and role assignments. Not needed when the customer
+  # brings their own IAM (BYO-IAM) through the azure-per-infra-iam module. Mirrors the AWS
+  # IncludeIAMWritePermissions / ClickHouse-IAM-Extended-Policy split.
+  # The read actions, userAssignedIdentities/assign/action (the Azure equivalent of iam:PassRole)
+  # and the federated identity credential actions stay in the always-granted set: a BYO-IAM
+  # deployment still observes the customer identities, and ClickHouse still federates them to the
+  # workloads of the AKS cluster it creates (the cluster OIDC issuer is unknown before that, like
+  # the EKS pod identity associations ClickHouse keeps managing under AWS BYO-IAM).
+  iam_write_actions = [
+    "Microsoft.ManagedIdentity/userAssignedIdentities/write",
+    "Microsoft.ManagedIdentity/userAssignedIdentities/delete",
+    "Microsoft.Authorization/roleDefinitions/write",
+    "Microsoft.Authorization/roleDefinitions/delete",
+    "Microsoft.Authorization/roleAssignments/write",
+    "Microsoft.Authorization/roleAssignments/delete",
+  ]
+
+  # BYO-IAM: built-in roles ClickHouse may still assign. Each covers an assignment whose scope or
+  # principal is created by ClickHouse during provisioning, so the customer cannot create it in
+  # advance:
+  # - Network Contributor: the AKS cluster service principal (an Entra app ClickHouse creates,
+  #   multitenant so it can also pull from the ClickHouse container registry) on the infra's
+  #   default resource group.
+  # - Azure Kubernetes Service Cluster Admin Role: the data-plane-mgmt identity on the AKS cluster.
+  # - Key Vault Crypto User: the TDE delegate identity on the TDE vault, and the data-plane-mgmt
+  #   and ClickHouse pod identities on the named-collections vault.
+  byo_iam_assignable_role_names = [
+    "Network Contributor",
+    "Azure Kubernetes Service Cluster Admin Role",
+    "Key Vault Crypto User",
+  ]
+
+  byo_iam_assignable_role_ids = join(", ", [
+    for role in data.azurerm_role_definition.byo_iam_assignable : basename(role.role_definition_id)
+  ])
+
+  # ABAC condition on the BYO-IAM role assignment delegate: ClickHouse can create and delete role
+  # assignments only for the roles above, so it can never grant Owner, Contributor, User Access
+  # Administrator or any custom role.
+  # https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-examples
+  byo_iam_role_assignment_condition = <<-EOT
+    (
+     (
+      !(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})
+     )
+     OR
+     (
+      @Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.byo_iam_assignable_role_ids}}
+     )
+    )
+    AND
+    (
+     (
+      !(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})
+     )
+     OR
+     (
+      @Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.byo_iam_assignable_role_ids}}
+     )
+    )
+  EOT
+
   # Private API server actions: ClickHouse fronts the private AKS API server's internal load
   # balancer with a Private Link Service so the ClickHouse management plane can reach it without a
   # public endpoint. The join action authorizes referencing the AKS-managed kube-apiserver frontend
@@ -113,24 +176,21 @@ resource "azurerm_role_definition" "clickhouse_byoc_provisioner" {
       "Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action",
       "Microsoft.ContainerService/managedClusters/listClusterUserCredential/action",
 
-      # Managed Identities & Federated Credentials
+      # Managed Identities & Federated Credentials (read, assign and federation in both IAM modes;
+      # identity write/delete in iam_write_actions)
       "Microsoft.ManagedIdentity/userAssignedIdentities/read",
-      "Microsoft.ManagedIdentity/userAssignedIdentities/write",
-      "Microsoft.ManagedIdentity/userAssignedIdentities/delete",
       "Microsoft.ManagedIdentity/userAssignedIdentities/assign/action",
       "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/read",
       "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/write",
       "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/delete",
 
-      # Role Definitions & Assignments
+      # Role Definitions & Assignments (read in both IAM modes; write/delete in iam_write_actions,
+      # or the constrained clickhouse_byoc_role_assignment_delegate role under BYO-IAM)
       "Microsoft.Authorization/roleDefinitions/read",
-      "Microsoft.Authorization/roleDefinitions/write",
-      "Microsoft.Authorization/roleDefinitions/delete",
       "Microsoft.Authorization/roleAssignments/read",
-      "Microsoft.Authorization/roleAssignments/write",
-      "Microsoft.Authorization/roleAssignments/delete",
       ],
       var.include_vpc_write_permissions ? local.vpc_write_actions : [],
+      var.include_iam_write_permissions ? local.iam_write_actions : [],
       local.private_api_server_actions,
       var.include_tde_permissions ? local.tde_keyvault_actions : [],
     )
@@ -138,6 +198,38 @@ resource "azurerm_role_definition" "clickhouse_byoc_provisioner" {
     not_actions = []
 
     data_actions = var.include_tde_permissions ? local.tde_keyvault_data_actions : []
+  }
+
+  assignable_scopes = [
+    "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+  ]
+}
+
+data "azurerm_role_definition" "byo_iam_assignable" {
+  for_each = var.include_iam_write_permissions ? toset([]) : toset(local.byo_iam_assignable_role_names)
+
+  name  = each.value
+  scope = data.azurerm_subscription.current.id
+}
+
+# BYO-IAM only: lets ClickHouse create and delete role assignments, restricted by
+# local.byo_iam_role_assignment_condition (set on the assignment in main.tf) to the built-in
+# roles in local.byo_iam_assignable_role_names. Kept separate from the provisioner role so the
+# condition constrains nothing else.
+resource "azurerm_role_definition" "clickhouse_byoc_role_assignment_delegate" {
+  count = var.include_iam_write_permissions ? 0 : 1
+
+  name        = "ClickHouse BYOC Role Assignment Delegate (${var.environment})"
+  scope       = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+  description = "Lets ClickHouse assign a fixed set of built-in roles on resources it creates for a bring-your-own-IAM BYOC infrastructure. Constrained by an ABAC condition on the role assignment."
+
+  permissions {
+    actions = [
+      "Microsoft.Authorization/roleAssignments/read",
+      "Microsoft.Authorization/roleAssignments/write",
+      "Microsoft.Authorization/roleAssignments/delete",
+    ]
+    not_actions = []
   }
 
   assignable_scopes = [
