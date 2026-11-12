@@ -126,7 +126,7 @@ resource "google_project_iam_custom_role" "clickhouse_vpc_write_role" {
   role_id     = "clickhouseVPCWriteRole"
   title       = "ClickHouse VPC Write Role"
   description = "Role to allow ClickHouse Cloud to create, delete, and modify the VPC network topology (networks, routes, Cloud Routers, and subnets) in your project"
-  permissions = [
+  permissions = concat([
     # Network
     "compute.networks.addPeering",
     "compute.networks.create",
@@ -147,7 +147,6 @@ resource "google_project_iam_custom_role" "clickhouse_vpc_write_role" {
     "compute.subnetworks.deleteTagBinding",
     "compute.subnetworks.expandIpCidrRange",
     "compute.subnetworks.mirror",
-    "compute.subnetworks.setIamPolicy",
     "compute.subnetworks.setPrivateIpGoogleAccess",
     "compute.subnetworks.update",
 
@@ -169,7 +168,10 @@ resource "google_project_iam_custom_role" "clickhouse_vpc_write_role" {
     # Address (tag bindings; create/delete stay in clickhouseVPCRole)
     "compute.addresses.createTagBinding",
     "compute.addresses.deleteTagBinding",
-  ]
+    ],
+    # IAM write on subnets. No ClickHouse caller is known; removed when you bring your own IAM.
+    var.include_iam_write_permissions ? ["compute.subnetworks.setIamPolicy"] : [],
+  )
 }
 
 resource "google_project_iam_custom_role" "clickhouse_cluster_role" {
@@ -617,7 +619,7 @@ resource "google_project_iam_custom_role" "clickhouse_storage_role" {
   role_id     = "clickhouseStorageRole"
   title       = "ClickHouse Storage Role"
   description = "Role to allow ClickHouse Cloud to manage Object Storage resources in your project"
-  permissions = [
+  permissions = concat([
     # Object Storage
     "storage.buckets.create",
     "storage.buckets.createTagBinding",
@@ -633,7 +635,6 @@ resource "google_project_iam_custom_role" "clickhouse_storage_role" {
     "storage.buckets.listTagBindings",
     "storage.buckets.relocate",
     "storage.buckets.restore",
-    "storage.buckets.setIamPolicy",
     "storage.buckets.setIpFilter",
     "storage.buckets.update",
     # The Terraform GCS provider lists a bucket's Anywhere Caches before
@@ -642,7 +643,11 @@ resource "google_project_iam_custom_role" "clickhouse_storage_role" {
     # permissions never come into play. ClickHouse never creates caches, so
     # list access alone is enough to get past the check.
     "storage.anywhereCaches.list",
-  ]
+    ],
+    # Per-bucket grants. When you bring your own IAM, your per-infra IAM module grants bucket
+    # access by bucket name prefix instead.
+    var.include_iam_write_permissions ? ["storage.buckets.setIamPolicy"] : [],
+  )
 }
 
 # Object-level access, bound only on ClickHouse-managed monitoring buckets (see
@@ -657,36 +662,13 @@ resource "google_project_iam_custom_role" "clickhouse_storage_objects_role" {
 resource "google_project_iam_custom_role" "clickhouse_iam_role" {
   role_id     = "clickhouseIamRole"
   title       = "ClickHouse IAM Role"
-  description = "Role to allow ClickHouse Cloud to manage IAM resources in your project"
-  permissions = [
-    # Required to grant roles/container.defaultNodeServiceAccount to nodePool SA
-    "resourcemanager.projects.setIamPolicy",
-    "resourcemanager.projects.getIamPolicy",
-
-    # Manage service accounts
-    "iam.serviceAccounts.create",
-    "iam.serviceAccounts.createTagBinding",
-    "iam.serviceAccounts.delete",
-    "iam.serviceAccounts.deleteTagBinding",
-    "iam.serviceAccounts.disable",
-    "iam.serviceAccounts.enable",
-    "iam.serviceAccounts.get",
-    "iam.serviceAccounts.getIamPolicy",
-    "iam.serviceAccounts.list",
-    "iam.serviceAccounts.listEffectiveTags",
-    "iam.serviceAccounts.listTagBindings",
-    "iam.serviceAccounts.setIamPolicy",
-    "iam.serviceAccounts.undelete",
-    "iam.serviceAccounts.update",
-
-    # Manage custom roles
-    "iam.roles.create",
-    "iam.roles.delete",
-    "iam.roles.get",
-    "iam.roles.list",
-    "iam.roles.undelete",
-    "iam.roles.update",
-  ]
+  description = var.include_iam_write_permissions ? "Role to allow ClickHouse Cloud to manage IAM resources in your project" : "Role to allow ClickHouse Cloud to read IAM resources in your project (bring your own IAM)"
+  # When you bring your own IAM (include_iam_write_permissions = false), the role keeps its ID and
+  # its binding, and only the read permissions stay. A change of the variable updates this role in
+  # place and changes no binding.
+  permissions = concat(local.clickhouse_iam_read_permissions,
+    var.include_iam_write_permissions ? local.clickhouse_iam_write_permissions : [],
+  )
 }
 
 # BYOC+TDE: lets ClickHouse provision and manage the infra's shared Cloud KMS resources — the
@@ -699,7 +681,7 @@ resource "google_project_iam_custom_role" "clickhouse_tde_role" {
   role_id     = "clickhouseTdeRole"
   title       = "ClickHouse TDE Role"
   description = "Role to allow ClickHouse Cloud to manage the BYOC+TDE key ring, default KEK and key IAM bindings in your project (no destroy permissions)"
-  permissions = [
+  permissions = concat([
     # Key rings
     "cloudkms.keyRings.create",
     "cloudkms.keyRings.get",
@@ -711,8 +693,10 @@ resource "google_project_iam_custom_role" "clickhouse_tde_role" {
     "cloudkms.cryptoKeys.list",
     "cloudkms.cryptoKeys.update",
 
-    # Key IAM bindings for the TDE delegate (encrypter/decrypter + viewer)
+    # Key IAM bindings for the TDE delegate (encrypter/decrypter + viewer). When you bring your
+    # own IAM, your per-infra IAM module creates these bindings and ClickHouse only reads them.
     "cloudkms.cryptoKeys.getIamPolicy",
-    "cloudkms.cryptoKeys.setIamPolicy",
-  ]
+    ],
+    var.include_iam_write_permissions ? ["cloudkms.cryptoKeys.setIamPolicy"] : [],
+  )
 }
