@@ -70,7 +70,7 @@ locals {
   # dp-mgmt service account. Crossplane adds the static members of the other 3, as
   # clickhouse-management.
   binder_grants = {
-    clickhouse = "serviceAccount:${var.spoken_name}-dp-mgmt@${var.project_id}.iam.gserviceaccount.com"
+    clickhouse = google_service_account.this["dp_mgmt"].member
     scraper    = local.clickhouse_management_member
     kmf        = local.clickhouse_management_member
     monitoring = local.clickhouse_management_member

@@ -40,7 +40,7 @@ The roles that this module binds (`clickhouseDpMgmtRole`, `clickhouseDpMgmtBucke
 
 | Service account | Used by | Grants |
 |-----------------|---------|--------|
-| `<spoken>-clickhouse` | ClickHouse server | `roles/storage.objectUser` and `clickhouseBucketReaderRole` (`storage.buckets.get`) on the instance buckets of the infra (name prefix condition). `roles/cloudkms.cryptoKeyDecrypter` on the named collections key. Token creator on `<spoken>-tde-delegate` |
+| `<spoken>-clickhouse` | ClickHouse server | `roles/storage.objectUser` and `clickhouseBucketReaderRole` (`storage.buckets.get`) on the instance buckets of the infra (name prefix condition). The same two roles, read only, on buckets of each spoken name in `restore_source_spoken_names`. `roles/cloudkms.cryptoKeyDecrypter` on the named collections key. Token creator on `<spoken>-tde-delegate` |
 | `<spoken>-scraper` | ClickHouse scraper | None in your project |
 | `<spoken>-kmf` | Kube metric forwarder (autoscaling) | None in your project |
 | `<spoken>-gke-node` | GKE nodes | `roles/container.defaultNodeServiceAccount` on the project |
@@ -74,7 +74,7 @@ GCP IAM cannot limit which member the binder adds. We recommend the organization
 
 ### Restore from another infra
 
-To restore backups of another BYOC infra in the same project, add its spoken name to `restore_source_spoken_names`. The ClickHouse server of this infra then gets read access (`roles/storage.objectViewer` and `clickhouseBucketReaderRole`) to the buckets of that infra, with an IAM Condition on `projects/_/buckets/ch_<source-spoken>_`. That prefix covers every region of the source spoken name, and the trailing underscore stops a spoken name that is a prefix of another from matching.
+To restore backups of another bring your own IAM BYOC infra in the same project, add its spoken name to `restore_source_spoken_names`. The source infra must itself use bring your own IAM: default-mode buckets do not use this name prefix. The ClickHouse server of this infra then gets read access (`roles/storage.objectViewer` and `clickhouseBucketReaderRole`) to the buckets of that infra, with an IAM Condition on `projects/_/buckets/ch_<source-spoken>_`. That prefix covers every region of the source spoken name, and the trailing underscore stops a spoken name that is a prefix of another from matching.
 
 ### Terminate an infra
 

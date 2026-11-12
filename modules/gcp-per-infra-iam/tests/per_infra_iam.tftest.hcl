@@ -1,13 +1,77 @@
 # Plan-only tests with a mocked Google provider. They need no credentials and make no API call.
+# mock_provider requires Terraform 1.7 or later. CI runs Terraform 1.9.8.
 # Run them with: terraform init -backend=false && terraform test
 
 mock_provider "google" {
-  # The service account email and member are known after apply. Give the mock the same shape as
-  # the real values, so that the plan-time assertions can read them.
+  # The service account email and member are known after apply. Give each key its
+  # own member so a grant wired to the wrong service account fails the test.
   override_resource {
-    target = google_service_account.this
+    target          = google_service_account.this["clickhouse"]
+    override_during = plan
     values = {
-      member = "serviceAccount:mock@byoc-test-project.iam.gserviceaccount.com"
+      member = "serviceAccount:acme-prod-clickhouse@byoc-test-project.iam.gserviceaccount.com"
+      email  = "acme-prod-clickhouse@byoc-test-project.iam.gserviceaccount.com"
+      name   = "projects/byoc-test-project/serviceAccounts/acme-prod-clickhouse@byoc-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.this["scraper"]
+    override_during = plan
+    values = {
+      member = "serviceAccount:acme-prod-scraper@byoc-test-project.iam.gserviceaccount.com"
+      email  = "acme-prod-scraper@byoc-test-project.iam.gserviceaccount.com"
+      name   = "projects/byoc-test-project/serviceAccounts/acme-prod-scraper@byoc-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.this["kmf"]
+    override_during = plan
+    values = {
+      member = "serviceAccount:acme-prod-kmf@byoc-test-project.iam.gserviceaccount.com"
+      email  = "acme-prod-kmf@byoc-test-project.iam.gserviceaccount.com"
+      name   = "projects/byoc-test-project/serviceAccounts/acme-prod-kmf@byoc-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.this["gke_node"]
+    override_during = plan
+    values = {
+      member = "serviceAccount:acme-prod-gke-node@byoc-test-project.iam.gserviceaccount.com"
+      email  = "acme-prod-gke-node@byoc-test-project.iam.gserviceaccount.com"
+      name   = "projects/byoc-test-project/serviceAccounts/acme-prod-gke-node@byoc-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.this["monitoring"]
+    override_during = plan
+    values = {
+      member = "serviceAccount:acme-prod-monitoring@byoc-test-project.iam.gserviceaccount.com"
+      email  = "acme-prod-monitoring@byoc-test-project.iam.gserviceaccount.com"
+      name   = "projects/byoc-test-project/serviceAccounts/acme-prod-monitoring@byoc-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.this["dp_mgmt"]
+    override_during = plan
+    values = {
+      member = "serviceAccount:acme-prod-dp-mgmt@byoc-test-project.iam.gserviceaccount.com"
+      email  = "acme-prod-dp-mgmt@byoc-test-project.iam.gserviceaccount.com"
+      name   = "projects/byoc-test-project/serviceAccounts/acme-prod-dp-mgmt@byoc-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.this["tde_delegate"]
+    override_during = plan
+    values = {
+      member = "serviceAccount:acme-prod-tde-delegate@byoc-test-project.iam.gserviceaccount.com"
+      email  = "acme-prod-tde-delegate@byoc-test-project.iam.gserviceaccount.com"
+      name   = "projects/byoc-test-project/serviceAccounts/acme-prod-tde-delegate@byoc-test-project.iam.gserviceaccount.com"
     }
   }
 }
@@ -147,14 +211,71 @@ run "binder_is_granted_on_4_service_accounts" {
 run "no_project_level_iam_write" {
   command = plan
 
+  variables {
+    restore_source_spoken_names = ["lemon-ab-12"]
+  }
+
   assert {
-    condition = alltrue(flatten([
-      [for m in google_project_iam_member.cluster_viewer : m.role == "roles/container.clusterViewer"],
-      [google_project_iam_member.dp_mgmt_role.role == "projects/byoc-test-project/roles/clickhouseDpMgmtRole"],
-      [google_project_iam_member.dp_mgmt_bucket_role.role == "projects/byoc-test-project/roles/clickhouseDpMgmtBucketRole"],
-      [google_project_iam_member.gke_node_default_node_sa.role == "roles/container.defaultNodeServiceAccount"],
-    ]))
+    condition = alltrue([
+      for m in flatten([
+        [google_project_iam_member.dp_mgmt_role],
+        [google_project_iam_member.dp_mgmt_bucket_role],
+        [google_project_iam_member.gke_node_default_node_sa],
+        values(google_project_iam_member.cluster_viewer),
+        values(google_project_iam_member.clickhouse_buckets),
+        values(google_project_iam_member.clickhouse_restore_sources),
+        [google_project_iam_member.monitoring_bucket],
+        values(google_project_iam_member.tde_delegate_kek),
+        values(google_project_iam_member.snc_kek),
+        ]) : contains([
+        "projects/byoc-test-project/roles/clickhouseDpMgmtRole",
+        "projects/byoc-test-project/roles/clickhouseDpMgmtBucketRole",
+        "projects/byoc-test-project/roles/clickhouseBucketReaderRole",
+        "roles/container.defaultNodeServiceAccount",
+        "roles/container.clusterViewer",
+        "roles/storage.objectUser",
+        "roles/storage.objectViewer",
+        "roles/storage.objectAdmin",
+        "roles/cloudkms.cryptoKeyEncrypterDecrypter",
+        "roles/cloudkms.viewer",
+        "roles/cloudkms.cryptoKeyEncrypter",
+        "roles/cloudkms.cryptoKeyDecrypter",
+      ], m.role)
+    ])
     error_message = "unexpected project role"
+  }
+
+  assert {
+    condition     = google_project_iam_member.monitoring_bucket.member == google_service_account.this["monitoring"].member
+    error_message = "the monitoring bucket grant must go to the monitoring service account"
+  }
+
+  assert {
+    condition = alltrue([
+      for m in values(google_project_iam_member.clickhouse_buckets) : m.member == google_service_account.this["clickhouse"].member
+    ])
+    error_message = "instance bucket grants must go to the ClickHouse server service account"
+  }
+
+  assert {
+    condition = alltrue([
+      for m in values(google_project_iam_member.tde_delegate_kek) : m.member == google_service_account.this["tde_delegate"].member
+    ])
+    error_message = "TDE key grants must go to the TDE delegate service account"
+  }
+
+  assert {
+    condition = alltrue([
+      for k, m in google_project_iam_member.snc_kek :
+      (k == "dp_mgmt_encrypter" && m.member == google_service_account.this["dp_mgmt"].member) ||
+      (k == "clickhouse_decrypter" && m.member == google_service_account.this["clickhouse"].member)
+    ])
+    error_message = "named collections grants must go to dp-mgmt and the ClickHouse server"
+  }
+
+  assert {
+    condition     = google_project_iam_member.gke_node_default_node_sa.member == google_service_account.this["gke_node"].member
+    error_message = "the default node service account role must go to the GKE node service account"
   }
 }
 
@@ -208,3 +329,49 @@ run "rejects_a_spoken_name_longer_than_17_characters" {
 
   expect_failures = [var.spoken_name]
 }
+
+run "monitoring_bucket_condition_matches_the_infra_name" {
+  command = plan
+
+  assert {
+    condition = google_project_iam_member.monitoring_bucket.condition[0].expression == join(" || ", [
+      "(resource.name.startsWith(\"projects/_/buckets/acme-prod_\") && resource.name.extract(\"projects/_/buckets/{bucket}/objects/\") == \"\" && resource.name.endsWith(\"_gcp_clickhouse_cloud-monitoring\"))",
+      "(resource.name.extract(\"projects/_/buckets/{bucket}/objects/\").startsWith(\"acme-prod_\") && resource.name.extract(\"projects/_/buckets/{bucket}/objects/\").endsWith(\"_gcp_clickhouse_cloud-monitoring\"))",
+    ])
+    error_message = "monitoring bucket condition must match only this infra's monitoring bucket"
+  }
+}
+
+run "accepts_a_spoken_name_of_17_characters" {
+  command = plan
+
+  variables {
+    spoken_name = "abcdefghijklmnopq"
+  }
+
+  assert {
+    condition     = google_service_account.this["tde_delegate"].account_id == "abcdefghijklmnopq-tde-delegate"
+    error_message = "a 17-character spoken name must be accepted"
+  }
+}
+
+run "rejects_an_invalid_region" {
+  command = plan
+
+  variables {
+    region = "US-EAST-1"
+  }
+
+  expect_failures = [var.region]
+}
+
+run "rejects_an_invalid_restore_source_spoken_name" {
+  command = plan
+
+  variables {
+    restore_source_spoken_names = ["Acme"]
+  }
+
+  expect_failures = [var.restore_source_spoken_names]
+}
+

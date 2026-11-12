@@ -17,6 +17,11 @@ variable "spoken_name" {
 variable "region" {
   type        = string
   description = "(Required) The GCP region of the BYOC infra, for example `us-east1`."
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]*[0-9]$", var.region))
+    error_message = "region must be a lowercase GCP region id, for example us-east1 or northamerica-northeast2."
+  }
 }
 
 variable "environment" {
@@ -32,6 +37,13 @@ variable "environment" {
 
 variable "restore_source_spoken_names" {
   type        = list(string)
-  description = "(Optional) The spoken names of other BYOC infras in this project whose backups this infra can restore. The module gives the ClickHouse service account of this infra read access to the buckets of those infras."
+  description = "(Optional) The spoken names of other bring your own IAM BYOC infras in this project whose backups this infra can restore. The module gives the ClickHouse service account of this infra read access to the buckets of those infras. Each name must be a bring your own IAM spoken name; default-mode buckets are not covered."
   default     = []
+
+  validation {
+    condition = alltrue([
+      for name in var.restore_source_spoken_names : can(regex("^[a-z][a-z0-9-]{0,15}[a-z0-9]$", name))
+    ])
+    error_message = "each restore source spoken name must be 2 to 17 characters: lowercase letters, digits and hyphens, start with a letter and not end with a hyphen."
+  }
 }
