@@ -68,8 +68,10 @@ resource "google_project_iam_member" "cluster_viewer" {
 # ---------------------------------------------------------------------------------------------
 
 # ClickHouse server: read and write objects in the instance buckets of this infra.
+# clickhouseBucketReaderRole (storage.buckets.get) replaces roles/storage.legacyBucketReader,
+# which GCP rejects at project level.
 resource "google_project_iam_member" "clickhouse_buckets" {
-  for_each = toset(["roles/storage.objectUser", "roles/storage.legacyBucketReader"])
+  for_each = toset(["roles/storage.objectUser", local.bucket_reader_role])
 
   project = var.project_id
   role    = each.value
@@ -85,7 +87,7 @@ resource "google_project_iam_member" "clickhouse_buckets" {
 # ClickHouse server: read the backups of other infras in this project, to restore them here.
 resource "google_project_iam_member" "clickhouse_restore_sources" {
   for_each = {
-    for pair in setproduct(keys(local.restore_sources), ["roles/storage.objectViewer", "roles/storage.legacyBucketReader"]) :
+    for pair in setproduct(keys(local.restore_sources), ["roles/storage.objectViewer", local.bucket_reader_role]) :
     "${pair[0]}/${pair[1]}" => { spoken_name = pair[0], token = local.restore_sources[pair[0]], role = pair[1] }
   }
 

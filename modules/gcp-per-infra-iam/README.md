@@ -34,13 +34,13 @@ module "clickhouse_per_infra_iam" {
 
 Replace `<version>` with the latest tag from the module's [releases page](https://github.com/ClickHouse/terraform-byoc-onboarding/releases).
 
-The roles that this module binds (`clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseWorkloadIdentityBinderRole`) are defined by the `gcp` module. Apply the `gcp` module first.
+The roles that this module binds (`clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseBucketReaderRole`, `clickhouseWorkloadIdentityBinderRole`) are defined by the `gcp` module. Apply the `gcp` module first.
 
 ## What the module creates
 
 | Service account | Used by | Grants |
 |-----------------|---------|--------|
-| `<spoken>-clickhouse` | ClickHouse server | `roles/storage.objectUser` and `roles/storage.legacyBucketReader` on the instance buckets of the infra (name prefix condition). `roles/cloudkms.cryptoKeyDecrypter` on the named collections key. Token creator on `<spoken>-tde-delegate` |
+| `<spoken>-clickhouse` | ClickHouse server | `roles/storage.objectUser` and `clickhouseBucketReaderRole` (`storage.buckets.get`) on the instance buckets of the infra (name prefix condition). `roles/cloudkms.cryptoKeyDecrypter` on the named collections key. Token creator on `<spoken>-tde-delegate` |
 | `<spoken>-scraper` | ClickHouse scraper | None in your project |
 | `<spoken>-kmf` | Kube metric forwarder (autoscaling) | None in your project |
 | `<spoken>-gke-node` | GKE nodes | `roles/container.defaultNodeServiceAccount` on the project |
@@ -74,7 +74,7 @@ GCP IAM cannot limit which member the binder adds. We recommend the organization
 
 ### Restore from another infra
 
-To restore backups of another BYOC infra in the same project, add its spoken name to `restore_source_spoken_names`. The ClickHouse server of this infra then gets read access (`roles/storage.objectViewer` and `roles/storage.legacyBucketReader`) to the buckets of that infra.
+To restore backups of another BYOC infra in the same project, add its spoken name to `restore_source_spoken_names`. The ClickHouse server of this infra then gets read access (`roles/storage.objectViewer` and `clickhouseBucketReaderRole`) to the buckets of that infra.
 
 ### Terminate an infra
 

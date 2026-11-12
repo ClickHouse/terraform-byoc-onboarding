@@ -74,7 +74,7 @@ run "restore_sources_get_read_only_grants" {
 
   assert {
     condition     = length(google_project_iam_member.clickhouse_restore_sources) == 4
-    error_message = "each restore source needs objectViewer and legacyBucketReader"
+    error_message = "each restore source needs objectViewer and clickhouseBucketReaderRole"
   }
 
   assert {
@@ -83,12 +83,12 @@ run "restore_sources_get_read_only_grants" {
   }
 
   assert {
-    condition     = google_project_iam_member.clickhouse_restore_sources["x9/roles/storage.legacyBucketReader"].condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/05bb5\")"
+    condition     = google_project_iam_member.clickhouse_restore_sources["x9/projects/byoc-test-project/roles/clickhouseBucketReaderRole"].condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/05bb5\")"
     error_message = "restore source grant must use the token of the source infra"
   }
 
   assert {
-    condition     = alltrue([for m in google_project_iam_member.clickhouse_restore_sources : contains(["roles/storage.objectViewer", "roles/storage.legacyBucketReader"], m.role)])
+    condition     = alltrue([for m in google_project_iam_member.clickhouse_restore_sources : contains(["roles/storage.objectViewer", "projects/byoc-test-project/roles/clickhouseBucketReaderRole"], m.role)])
     error_message = "restore source grants must be read only"
   }
 }
