@@ -3,9 +3,9 @@ output "service_account_emails" {
   description = "The emails of the 7 service accounts of the infra, by purpose."
 }
 
-output "bucket_token" {
-  value       = local.bucket_token
-  description = "The name prefix of the instance buckets of the infra. ClickHouse computes the same value."
+output "bucket_prefix" {
+  value       = local.bucket_prefix
+  description = "The name prefix of the instance buckets of the infra, ch_<spoken>_<region>_. ClickHouse computes the same value."
 }
 
 output "byo_iam_version" {

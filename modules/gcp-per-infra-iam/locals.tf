@@ -4,10 +4,10 @@ locals {
   byo_iam_version = 1
   version_stamp   = "clickhouse-byo-iam-version=${local.byo_iam_version}"
 
-  # Buckets that ClickHouse creates for the instances of this infra start with this token. It is
-  # the first 5 hex characters of sha256(spoken_name). data-plane-management computes the same
-  # value. Do not change it.
-  bucket_token = substr(sha256(var.spoken_name), 0, 5)
+  # Buckets that ClickHouse creates for the instances of this infra start with this prefix:
+  # ch_<spoken>_<region>_. data-plane-management computes the same value. Underscores cannot
+  # appear in a spoken name, so a spoken name that is a prefix of another does not match.
+  bucket_prefix = "ch_${var.spoken_name}_${var.region}_"
 
   # Roles defined by the gcp onboarding module (modules/gcp). The IDs are a contract.
   dp_mgmt_role                  = "projects/${var.project_id}/roles/clickhouseDpMgmtRole"
@@ -78,7 +78,7 @@ locals {
 
   # IAM Conditions. Bucket access is checked on projects/_/buckets/<bucket> and on
   # projects/_/buckets/<bucket>/objects/<object>, so a prefix on the bucket name matches both.
-  bucket_prefix_condition = "resource.name.startsWith(\"projects/_/buckets/${local.bucket_token}\")"
+  bucket_prefix_condition = "resource.name.startsWith(\"projects/_/buckets/${local.bucket_prefix}\")"
 
   # The monitoring bucket is <spoken>_<region-short>_gcp_clickhouse_cloud-monitoring. Spoken names
   # have no underscore, so the <spoken>_ prefix matches the buckets of this infra only.
@@ -97,7 +97,9 @@ locals {
   tde_kek_condition = "resource.name == \"${local.tde_kek_name}\" || resource.name.startsWith(\"${local.tde_kek_name}/\")"
   snc_kek_condition = "resource.name == \"${local.snc_kek_name}\" || resource.name.startsWith(\"${local.snc_kek_name}/\")"
 
+  # Restore sources have no region input, so the prefix is ch_<source-spoken>_ and covers every
+  # region of that spoken name in the project. The trailing underscore still stops a prefix clash.
   restore_sources = {
-    for name in var.restore_source_spoken_names : name => substr(sha256(name), 0, 5)
+    for name in var.restore_source_spoken_names : name => "ch_${name}_"
   }
 }

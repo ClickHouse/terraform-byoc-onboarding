@@ -48,7 +48,7 @@ resource "google_project_iam_member" "dp_mgmt_bucket_role" {
 
   condition {
     title       = "clickhouse-${var.spoken_name}-buckets"
-    description = "Only buckets of BYOC infra ${var.spoken_name} (prefix ${local.bucket_token})"
+    description = "Only buckets of BYOC infra ${var.spoken_name} (prefix ${local.bucket_prefix})"
     expression  = local.bucket_prefix_condition
   }
 }
@@ -79,7 +79,7 @@ resource "google_project_iam_member" "clickhouse_buckets" {
 
   condition {
     title       = "clickhouse-${var.spoken_name}-buckets"
-    description = "Only buckets of BYOC infra ${var.spoken_name} (prefix ${local.bucket_token})"
+    description = "Only buckets of BYOC infra ${var.spoken_name} (prefix ${local.bucket_prefix})"
     expression  = local.bucket_prefix_condition
   }
 }
@@ -88,7 +88,7 @@ resource "google_project_iam_member" "clickhouse_buckets" {
 resource "google_project_iam_member" "clickhouse_restore_sources" {
   for_each = {
     for pair in setproduct(keys(local.restore_sources), ["roles/storage.objectViewer", local.bucket_reader_role]) :
-    "${pair[0]}/${pair[1]}" => { spoken_name = pair[0], token = local.restore_sources[pair[0]], role = pair[1] }
+    "${pair[0]}/${pair[1]}" => { spoken_name = pair[0], prefix = local.restore_sources[pair[0]], role = pair[1] }
   }
 
   project = var.project_id
@@ -97,8 +97,8 @@ resource "google_project_iam_member" "clickhouse_restore_sources" {
 
   condition {
     title       = "clickhouse-${var.spoken_name}-restore-from-${each.value.spoken_name}"
-    description = "Read only, buckets of BYOC infra ${each.value.spoken_name} (prefix ${each.value.token})"
-    expression  = "resource.name.startsWith(\"projects/_/buckets/${each.value.token}\")"
+    description = "Read only, buckets of BYOC infra ${each.value.spoken_name} (prefix ${each.value.prefix})"
+    expression  = "resource.name.startsWith(\"projects/_/buckets/${each.value.prefix}\")"
   }
 }
 
