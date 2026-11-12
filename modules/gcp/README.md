@@ -109,7 +109,7 @@ ClickHouse keeps these permissions in both modes:
 
 This module also creates 4 roles in both modes: `clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseBucketReaderRole` and `clickhouseWorkloadIdentityBinderRole`. They grant nothing alone. Only `gcp-per-infra-iam` binds them.
 
-IAM Conditions cannot match service account names. So `iam.serviceAccounts.actAs` applies to all service accounts in the project. This is why we recommend a project that is dedicated to ClickHouse BYOC.
+IAM Conditions cannot match service account names. So `iam.serviceAccounts.actAs` applies to all service accounts in the project. Together with `clickhouseClusterRole` (`container.clusters.create` and `container.clusters.update`), this lets ClickHouse run a node pool as any service account in the project. Keep no service accounts in the BYOC project other than ClickHouse's and the per-infra ones, and apply this module from a different project. We also recommend the organization policy `iam.disableServiceAccountKeyCreation` on the project.
 
 ## Inputs
 

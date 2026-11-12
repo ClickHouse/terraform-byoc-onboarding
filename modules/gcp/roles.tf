@@ -675,7 +675,8 @@ resource "google_project_iam_custom_role" "clickhouse_iam_role" {
 # key ring, the default KEK, and the delegate's IAM bindings on the key. Deliberately excludes
 # every destructive permission (cryptoKeyVersions.destroy, keyRings/cryptoKeys have no delete):
 # ClickHouse can never destroy key material in your project. The delegate service account and its
-# impersonation bindings are covered by clickhouseIamRole.
+# impersonation bindings are covered by clickhouseIamRole, or by gcp-per-infra-iam
+# when you bring your own IAM.
 resource "google_project_iam_custom_role" "clickhouse_tde_role" {
   count       = var.include_tde_permissions ? 1 : 0
   role_id     = "clickhouseTdeRole"

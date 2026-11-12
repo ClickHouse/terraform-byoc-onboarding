@@ -1,4 +1,5 @@
 # Plan-only tests with a mocked Google provider. They need no credentials and make no API call.
+# mock_provider requires Terraform 1.7 or later. CI runs Terraform 1.9.8.
 # Run them with: terraform init -backend=false && terraform test
 
 mock_provider "google" {}
@@ -131,6 +132,14 @@ run "default_mode_is_unchanged" {
     condition     = length(google_project_iam_member.clickhouse_sa_roles) == 7
     error_message = "the set of role bindings of clickhouse-management changed in default mode"
   }
+
+  assert {
+    condition = alltrue([
+      for k in keys(google_project_iam_member.clickhouse_sa_roles) :
+      !contains(["dp_mgmt_role", "dp_mgmt_bucket_role", "bucket_reader_role", "workload_identity_binder_role"], k)
+    ])
+    error_message = "the bring your own IAM roles must not be bound to clickhouse-management"
+  }
 }
 
 # Bring your own IAM: no role bound to clickhouse-management can create service accounts or
@@ -154,9 +163,17 @@ run "byo_iam_removes_iam_writes" {
         google_project_iam_custom_role.clickhouse_storage_objects_role.permissions,
         google_project_iam_custom_role.clickhouse_iam_role.permissions,
         google_project_iam_custom_role.clickhouse_tde_role[0].permissions,
-      ]) : !endswith(p, ".setIamPolicy") && !startswith(p, "iam.roles.create") && !startswith(p, "iam.roles.update") && !startswith(p, "iam.roles.delete") && p != "iam.serviceAccounts.create" && p != "iam.serviceAccounts.delete"
+      ]) : !endswith(p, ".setIamPolicy") && !startswith(p, "iam.roles.create") && !startswith(p, "iam.roles.update") && !startswith(p, "iam.roles.delete") && p != "iam.serviceAccounts.create" && p != "iam.serviceAccounts.delete" && p != "iam.serviceAccountKeys.create" && p != "iam.serviceAccounts.getAccessToken" && p != "iam.serviceAccounts.signBlob" && p != "iam.serviceAccounts.implicitDelegation"
     ])
     error_message = "a role bound to clickhouse-management still holds an IAM write permission"
+  }
+
+  assert {
+    condition = alltrue([
+      for k in keys(google_project_iam_member.clickhouse_sa_roles) :
+      !contains(["dp_mgmt_role", "dp_mgmt_bucket_role", "bucket_reader_role", "workload_identity_binder_role"], k)
+    ])
+    error_message = "the bring your own IAM roles must not be bound to clickhouse-management"
   }
 
   assert {
@@ -235,3 +252,41 @@ run "byo_iam_roles_are_created_in_both_modes" {
     error_message = "the bucket reader role must hold only storage.buckets.get"
   }
 }
+
+# Shared VPC host roles must also hold no IAM-write permissions when the variable is false.
+run "shared_vpc_host_roles_have_no_iam_writes" {
+  command = plan
+
+  variables {
+    include_iam_write_permissions     = false
+    include_tde_permissions           = true
+    shared_vpc_host_project_id        = "host-project"
+    shared_vpc_host_subnet_region     = "us-east1"
+    shared_vpc_host_private_subnet_id = "private-subnet"
+  }
+
+  override_data {
+    target = data.google_project.service
+    values = {
+      number = "123456789012"
+    }
+    override_during = plan
+  }
+
+  assert {
+    condition = alltrue([
+      for p in google_project_iam_custom_role.clickhouse_shared_vpc_host_role[0].permissions :
+      !endswith(p, ".setIamPolicy") && !startswith(p, "iam.roles.") && p != "iam.serviceAccounts.create" && p != "iam.serviceAccountKeys.create" && p != "iam.serviceAccounts.getAccessToken" && p != "iam.serviceAccounts.signBlob" && p != "iam.serviceAccounts.implicitDelegation"
+    ])
+    error_message = "the Shared VPC host role still holds an IAM write permission"
+  }
+
+  assert {
+    condition = alltrue([
+      for k in keys(google_project_iam_member.clickhouse_sa_roles) :
+      !contains(["dp_mgmt_role", "dp_mgmt_bucket_role", "bucket_reader_role", "workload_identity_binder_role"], k)
+    ])
+    error_message = "the bring your own IAM roles must not be bound to clickhouse-management"
+  }
+}
+
