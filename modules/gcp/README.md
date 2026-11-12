@@ -104,7 +104,7 @@ ClickHouse keeps these permissions in both modes:
 - `iam.serviceAccounts.actAs` in `clickhouseCommonRole`. GKE node pools run as the node service account that you create.
 - `clickhouseWorkloadIdentityBinderRole`, which `gcp-per-infra-iam` grants on 4 service accounts of each infra, not on the project. ClickHouse uses it to add Workload Identity members. A Workload Identity member names a Kubernetes service account in the GKE cluster of the infra, and that cluster does not exist when you apply the module.
 
-This module also creates 3 roles in both modes: `clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole` and `clickhouseWorkloadIdentityBinderRole`. They grant nothing alone. Only `gcp-per-infra-iam` binds them.
+This module also creates 4 roles in both modes: `clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseBucketReaderRole` and `clickhouseWorkloadIdentityBinderRole`. They grant nothing alone. Only `gcp-per-infra-iam` binds them.
 
 IAM Conditions cannot match service account names. So `iam.serviceAccounts.actAs` applies to all service accounts in the project. This is why we recommend a project that is dedicated to ClickHouse BYOC.
 
@@ -131,7 +131,7 @@ IAM Conditions cannot match service account names. So `iam.serviceAccounts.actAs
 | shared_vpc_host_role | The ID of the ClickHouse Shared VPC host role granted in the host project, or null when Shared VPC is not used | string |
 | gke_service_agent_member | The service project's GKE service agent granted access to the Shared VPC host project, or null when Shared VPC is not used | string |
 | gke_shared_vpc_firewall_role | The ID of the firewall role granted to the GKE service agent in the host project, or null when Shared VPC is not used | string |
-| clickhouse_byo_iam_role_ids | The IDs of the roles that the `gcp-per-infra-iam` module binds when you bring your own IAM: `dp_mgmt_role`, `dp_mgmt_bucket_role`, `workload_identity_binder_role` | map(string) |
+| clickhouse_byo_iam_role_ids | The IDs of the roles that the `gcp-per-infra-iam` module binds when you bring your own IAM: `dp_mgmt_role`, `dp_mgmt_bucket_role`, `bucket_reader_role`, `workload_identity_binder_role` | map(string) |
 
 ## Resources
 
@@ -155,6 +155,7 @@ IAM Conditions cannot match service account names. So `iam.serviceAccounts.actAs
 | google_project_iam_custom_role.clickhouse_tde_role | Role to allow ClickHouse Cloud to manage the BYOC+TDE key ring, default KEK and key IAM bindings (no destroy permissions); created only when `include_tde_permissions` is true |
 | google_project_iam_custom_role.clickhouse_dp_mgmt_role | [BYO-IAM] Project-level role of the data plane management service account of each infra; holds no permission to grant roles; bound only by `gcp-per-infra-iam` |
 | google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role | [BYO-IAM] Bucket role of the data plane management service account of each infra; bound only by `gcp-per-infra-iam`, with a condition on the bucket name prefix of the infra |
+| google_project_iam_custom_role.clickhouse_bucket_reader_role | [BYO-IAM] `storage.buckets.get` for the ClickHouse server service account of each infra; bound only by `gcp-per-infra-iam`, with a condition on the bucket name prefix of the infra |
 | google_project_iam_custom_role.clickhouse_workload_identity_binder_role | [BYO-IAM] Lets ClickHouse add Workload Identity members on a service account; granted only on single service accounts by `gcp-per-infra-iam` |
 | google_project_iam_member.clickhouse_sa_roles["common_role"] | Grants `clickhouseCommonRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["vpc_role"] | Grants `clickhouseVPCRole` to ClickHouse Management Service Account |
