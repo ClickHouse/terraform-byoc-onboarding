@@ -57,3 +57,16 @@ resource "google_project_iam_custom_role" "clickhouse_workload_identity_binder_r
     "iam.serviceAccounts.setIamPolicy",
   ]
 }
+
+# Read bucket metadata of the infra. roles/storage.legacyBucketReader cannot be
+# granted at project level, so this role holds only storage.buckets.get. The
+# gcp-per-infra-iam module binds it to <spoken>-clickhouse with the bucket name
+# prefix condition of the infra (and of each restore source).
+resource "google_project_iam_custom_role" "clickhouse_bucket_reader_role" {
+  role_id     = "clickhouseBucketReaderRole"
+  title       = "ClickHouse Bucket Reader Role"
+  description = "Lets ClickHouse read bucket metadata of a BYOC infra. Bound by the gcp-per-infra-iam module with a condition on the bucket name prefix of the infra."
+  permissions = [
+    "storage.buckets.get",
+  ]
+}

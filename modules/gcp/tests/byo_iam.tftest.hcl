@@ -193,6 +193,7 @@ run "byo_iam_roles_are_created_in_both_modes" {
     condition = (
       google_project_iam_custom_role.clickhouse_dp_mgmt_role.role_id == "clickhouseDpMgmtRole" &&
       google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role.role_id == "clickhouseDpMgmtBucketRole" &&
+      google_project_iam_custom_role.clickhouse_bucket_reader_role.role_id == "clickhouseBucketReaderRole" &&
       google_project_iam_custom_role.clickhouse_workload_identity_binder_role.role_id == "clickhouseWorkloadIdentityBinderRole"
     )
     error_message = "the BYO-IAM role IDs are a contract with gcp-per-infra-iam and must not change"
@@ -203,6 +204,7 @@ run "byo_iam_roles_are_created_in_both_modes" {
       for p in setunion(
         google_project_iam_custom_role.clickhouse_dp_mgmt_role.permissions,
         google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role.permissions,
+        google_project_iam_custom_role.clickhouse_bucket_reader_role.permissions,
       ) : !endswith(p, ".setIamPolicy") && !startswith(p, "iam.roles.")
     ])
     error_message = "the dp-mgmt roles must hold no permission to grant roles"
@@ -213,6 +215,7 @@ run "byo_iam_roles_are_created_in_both_modes" {
       for p in setunion(
         google_project_iam_custom_role.clickhouse_dp_mgmt_role.permissions,
         google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role.permissions,
+        google_project_iam_custom_role.clickhouse_bucket_reader_role.permissions,
       ) : contains(["storage.objects.create", "storage.objects.get"], p)
     ])
     error_message = "dp-mgmt does not read or write objects on BYOC (remote settings do not run on BYOC)"
@@ -225,5 +228,10 @@ run "byo_iam_roles_are_created_in_both_modes" {
       "iam.serviceAccounts.setIamPolicy",
     ])
     error_message = "the binder role must hold only the service account IAM policy permissions"
+  }
+
+  assert {
+    condition     = toset(google_project_iam_custom_role.clickhouse_bucket_reader_role.permissions) == toset(["storage.buckets.get"])
+    error_message = "the bucket reader role must hold only storage.buckets.get"
   }
 }
