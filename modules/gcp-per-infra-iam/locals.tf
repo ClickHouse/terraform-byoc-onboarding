@@ -12,6 +12,7 @@ locals {
   # Roles defined by the gcp onboarding module (modules/gcp). The IDs are a contract.
   dp_mgmt_role                  = "projects/${var.project_id}/roles/clickhouseDpMgmtRole"
   dp_mgmt_bucket_role           = "projects/${var.project_id}/roles/clickhouseDpMgmtBucketRole"
+  bucket_reader_role            = "projects/${var.project_id}/roles/clickhouseBucketReaderRole"
   workload_identity_binder_role = "projects/${var.project_id}/roles/clickhouseWorkloadIdentityBinderRole"
 
   clickhouse_management_member = "serviceAccount:clickhouse-management@${var.project_id}.iam.gserviceaccount.com"
