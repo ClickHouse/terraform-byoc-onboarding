@@ -57,7 +57,7 @@ The module has no feature toggles. It always creates all service accounts and gr
 
 ### Bucket names
 
-ClickHouse names the instance buckets of a BYO-IAM infra with a prefix token: the first 5 hex characters of `sha256(spoken_name)`. The grants above use this token in an IAM Condition, so they apply only to the buckets of this infra. The `bucket_token` output shows the value.
+ClickHouse names the instance data and backup buckets of a bring your own IAM infra as `ch_<spoken>_<region>_<purpose>_<random6>`, where purpose is `data` or `backup`. Each instance uses its own dedicated buckets. Object paths inside a shared bucket are not used. The grants above use an IAM Condition on `projects/_/buckets/ch_<spoken>_<region>_`, so they apply only to the buckets of this infra in this region. The `bucket_prefix` output shows the value. The monitoring bucket name does not change.
 
 ### The binder: the one IAM write that ClickHouse keeps
 
@@ -74,7 +74,7 @@ GCP IAM cannot limit which member the binder adds. We recommend the organization
 
 ### Restore from another infra
 
-To restore backups of another BYOC infra in the same project, add its spoken name to `restore_source_spoken_names`. The ClickHouse server of this infra then gets read access (`roles/storage.objectViewer` and `clickhouseBucketReaderRole`) to the buckets of that infra.
+To restore backups of another BYOC infra in the same project, add its spoken name to `restore_source_spoken_names`. The ClickHouse server of this infra then gets read access (`roles/storage.objectViewer` and `clickhouseBucketReaderRole`) to the buckets of that infra, with an IAM Condition on `projects/_/buckets/ch_<source-spoken>_`. That prefix covers every region of the source spoken name, and the trailing underscore stops a spoken name that is a prefix of another from matching.
 
 ### Terminate an infra
 
@@ -95,7 +95,7 @@ Tell ClickHouse to terminate the infra first. Then destroy this module for that 
 | Name | Description |
 |------|-------------|
 | service_account_emails | The emails of the 7 service accounts of the infra, by purpose |
-| bucket_token | The name prefix of the instance buckets of the infra |
+| bucket_prefix | The name prefix of the instance buckets of the infra, `ch_<spoken>_<region>_` |
 | byo_iam_version | The version of this module's IAM contract |
 
 ## Requirements

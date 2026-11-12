@@ -42,26 +42,47 @@ run "creates_the_7_service_accounts_with_fixed_names" {
   }
 }
 
-# The token must equal the value that data-plane-management computes: the first 5 hex characters
-# of sha256(spoken_name). The data-plane-management unit tests assert the same values.
-run "bucket_token_matches_dpm" {
+# The prefix must equal the value that data-plane-management computes. The
+# data-plane-management unit tests assert the same values.
+run "bucket_prefix_matches_dpm" {
   command = plan
 
   assert {
-    condition     = output.bucket_token == "d2836"
-    error_message = "bucket token for acme-prod must be d2836"
+    condition     = output.bucket_prefix == "ch_acme-prod_us-east1_"
+    error_message = "bucket prefix for acme-prod in us-east1 must be ch_acme-prod_us-east1_"
   }
 
   assert {
-    condition     = google_project_iam_member.dp_mgmt_bucket_role.condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/d2836\")"
+    condition     = google_project_iam_member.dp_mgmt_bucket_role.condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/ch_acme-prod_us-east1_\")"
     error_message = "dp-mgmt bucket role must be conditioned on the infra bucket prefix"
   }
 
   assert {
     condition = alltrue([
-      for m in google_project_iam_member.clickhouse_buckets : m.condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/d2836\")"
+      for m in google_project_iam_member.clickhouse_buckets : m.condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/ch_acme-prod_us-east1_\")"
     ])
     error_message = "ClickHouse server bucket roles must be conditioned on the infra bucket prefix"
+  }
+}
+
+# Longest production region plus a 17-character spoken name. The condition still uses the
+# underscore delimiter, so it stays unique.
+run "bucket_prefix_longest_region" {
+  command = plan
+
+  variables {
+    spoken_name = "abcdefghijklmnopq"
+    region      = "northamerica-northeast2"
+  }
+
+  assert {
+    condition     = output.bucket_prefix == "ch_abcdefghijklmnopq_northamerica-northeast2_"
+    error_message = "bucket prefix for a 17-character spoken name in northamerica-northeast2 must include the region"
+  }
+
+  assert {
+    condition     = google_project_iam_member.dp_mgmt_bucket_role.condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/ch_abcdefghijklmnopq_northamerica-northeast2_\")"
+    error_message = "dp-mgmt bucket role must be conditioned on the longest-region prefix"
   }
 }
 
@@ -78,13 +99,13 @@ run "restore_sources_get_read_only_grants" {
   }
 
   assert {
-    condition     = google_project_iam_member.clickhouse_restore_sources["lemon-ab-12/roles/storage.objectViewer"].condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/0cfd2\")"
-    error_message = "restore source grant must use the token of the source infra"
+    condition     = google_project_iam_member.clickhouse_restore_sources["lemon-ab-12/roles/storage.objectViewer"].condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/ch_lemon-ab-12_\")"
+    error_message = "restore source grant must use the prefix of the source infra"
   }
 
   assert {
-    condition     = google_project_iam_member.clickhouse_restore_sources["x9/projects/byoc-test-project/roles/clickhouseBucketReaderRole"].condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/05bb5\")"
-    error_message = "restore source grant must use the token of the source infra"
+    condition     = google_project_iam_member.clickhouse_restore_sources["x9/projects/byoc-test-project/roles/clickhouseBucketReaderRole"].condition[0].expression == "resource.name.startsWith(\"projects/_/buckets/ch_x9_\")"
+    error_message = "restore source grant must use the prefix of the source infra"
   }
 
   assert {
