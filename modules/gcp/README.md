@@ -80,6 +80,9 @@ With the default `include_iam_write_permissions = true`, ClickHouse creates the 
 3. Apply the [`gcp-per-infra-iam`](../gcp-per-infra-iam/) module once for each infra, before ClickHouse creates the infra. ClickHouse gives you the spoken name of the infra.
 4. Tell ClickHouse to create the infra with bring your own IAM. You cannot change this setting after the infra is created.
 
+> [!IMPORTANT]
+> Set `include_iam_write_permissions = false` only on a project where every BYOC infra uses bring your own IAM. Do not set it to `false` on a project that already has default-mode infras: those infras need the IAM write permissions, and their reconciles will fail. Use a new dedicated project instead.
+
 ```hcl
 module "clickhouse_onboarding" {
   source                        = "github.com/ClickHouse/terraform-byoc-onboarding.git//modules/gcp?ref=<version>"
