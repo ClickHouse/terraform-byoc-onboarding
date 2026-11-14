@@ -32,11 +32,11 @@ output "gke_shared_vpc_firewall_role" {
 }
 
 output "clickhouse_byo_iam_role_ids" {
-  value = {
-    dp_mgmt_role                  = google_project_iam_custom_role.clickhouse_dp_mgmt_role.id
-    dp_mgmt_bucket_role           = google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role.id
-    bucket_reader_role            = google_project_iam_custom_role.clickhouse_bucket_reader_role.id
-    workload_identity_binder_role = google_project_iam_custom_role.clickhouse_workload_identity_binder_role.id
-  }
-  description = "The IDs of the roles that the gcp-per-infra-iam module binds when you bring your own IAM. They grant nothing alone."
+  value = !var.include_iam_write_permissions ? {
+    dp_mgmt_role                  = google_project_iam_custom_role.clickhouse_dp_mgmt_role[0].id
+    dp_mgmt_bucket_role           = google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role[0].id
+    bucket_reader_role            = google_project_iam_custom_role.clickhouse_bucket_reader_role[0].id
+    workload_identity_binder_role = google_project_iam_custom_role.clickhouse_workload_identity_binder_role[0].id
+  } : null
+  description = "The IDs of the roles that the gcp-per-infra-iam module binds when you bring your own IAM. Null in default mode (include_iam_write_permissions = true), because those roles are not created."
 }
