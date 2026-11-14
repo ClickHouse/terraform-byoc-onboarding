@@ -34,7 +34,7 @@ module "clickhouse_per_infra_iam" {
 
 Replace `<version>` with the latest tag from the module's [releases page](https://github.com/ClickHouse/terraform-byoc-onboarding/releases).
 
-The roles that this module binds (`clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseBucketReaderRole`, `clickhouseWorkloadIdentityBinderRole`) are defined by the `gcp` module. Apply the `gcp` module first.
+The roles that this module binds (`clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseBucketReaderRole`, `clickhouseWorkloadIdentityBinderRole`) are created by the `gcp` module only when `include_iam_write_permissions` is `false`. Apply the `gcp` module first, with that value.
 
 ## What the module creates
 
