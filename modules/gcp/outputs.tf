@@ -30,3 +30,13 @@ output "gke_shared_vpc_firewall_role" {
   value       = one(google_project_iam_custom_role.clickhouse_gke_shared_vpc_firewall_role[*].id)
   description = "The ID of the firewall role granted to the GKE service agent in the host project, or null when Shared VPC is not used"
 }
+
+output "clickhouse_byo_iam_role_ids" {
+  value = !var.include_iam_write_permissions ? {
+    dp_mgmt_role                  = google_project_iam_custom_role.clickhouse_dp_mgmt_role[0].id
+    dp_mgmt_bucket_role           = google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role[0].id
+    bucket_reader_role            = google_project_iam_custom_role.clickhouse_bucket_reader_role[0].id
+    workload_identity_binder_role = google_project_iam_custom_role.clickhouse_workload_identity_binder_role[0].id
+  } : null
+  description = "The IDs of the roles that the gcp-per-infra-iam module binds when you bring your own IAM. Null in default mode (include_iam_write_permissions = true), because those roles are not created."
+}

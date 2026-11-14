@@ -43,3 +43,9 @@ variable "include_tde_permissions" {
   description = "(Optional) Whether to let ClickHouse provision the BYOC+TDE shared resources in this project: one TDE delegate service account and one default Cloud KMS key (KEK) per infra, wrapping the data-encryption keys of TDE-enabled ClickHouse instances. Grants Cloud KMS key management WITHOUT any destroy permission — ClickHouse can never destroy key material. Defaults to false; enable before turning on TDE for an infra."
   default     = false
 }
+
+variable "include_iam_write_permissions" {
+  type        = bool
+  description = "(Optional) Whether to let ClickHouse create service accounts and custom roles, and change IAM policies, in this project. Set to `false` when you bring your own IAM (BYO-IAM): you then create the IAM of each BYOC infra with the `gcp-per-infra-iam` module, and ClickHouse keeps only read access to IAM. Default is `true`."
+  default     = true
+}

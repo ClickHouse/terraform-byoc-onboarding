@@ -39,6 +39,41 @@ locals {
     "resource.name.extract(\"projects/_/buckets/{bucket}/objects/\").endsWith(\"${local.clickhouse_monitoring_bucket_suffix}\")",
   ])
 
+  # clickhouseIamRole. The read permissions stay in both modes. The write permissions are removed
+  # when you bring your own IAM (include_iam_write_permissions = false).
+  clickhouse_iam_read_permissions = [
+    "resourcemanager.projects.getIamPolicy",
+    "iam.serviceAccounts.get",
+    "iam.serviceAccounts.getIamPolicy",
+    "iam.serviceAccounts.list",
+    "iam.roles.get",
+    "iam.roles.list",
+  ]
+
+  clickhouse_iam_write_permissions = [
+    # Required to grant roles/container.defaultNodeServiceAccount to nodePool SA
+    "resourcemanager.projects.setIamPolicy",
+
+    # Manage service accounts
+    "iam.serviceAccounts.create",
+    "iam.serviceAccounts.createTagBinding",
+    "iam.serviceAccounts.delete",
+    "iam.serviceAccounts.deleteTagBinding",
+    "iam.serviceAccounts.disable",
+    "iam.serviceAccounts.enable",
+    "iam.serviceAccounts.listEffectiveTags",
+    "iam.serviceAccounts.listTagBindings",
+    "iam.serviceAccounts.setIamPolicy",
+    "iam.serviceAccounts.undelete",
+    "iam.serviceAccounts.update",
+
+    # Manage custom roles
+    "iam.roles.create",
+    "iam.roles.delete",
+    "iam.roles.undelete",
+    "iam.roles.update",
+  ]
+
   clickhouse_crossplane_sa_map = {
     "production" = [
       # asia-ne1 = asia-northeast1 (Tokyo); this region's SAs use the short cell naming scheme

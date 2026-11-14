@@ -71,6 +71,46 @@ Because a GKE cluster on a Shared VPC has its network in the host project, GKE a
 
 ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.objects.delete` only to empty the ClickHouse-managed monitoring bucket before deleting it during infra teardown. These permissions are in `clickhouseStorageObjectsRole`, bound with an IAM Condition that matches only buckets whose name ends in `_gcp_clickhouse_cloud-monitoring` (ClickHouse names each infra's monitoring bucket `<infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring`) and the objects inside them. ClickHouse has no object access to any other bucket in the project, and nothing needs updating when infras are added or removed.
 
+### Bring your own IAM (BYO-IAM)
+
+With the default `include_iam_write_permissions = true`, ClickHouse creates the service accounts of each BYOC infra, its custom roles and its IAM grants. To keep these in your control, do these steps:
+
+1. Use a GCP project that is dedicated to ClickHouse BYOC. It can hold all your BYOC infras.
+2. Set `include_iam_write_permissions = false` on this module.
+3. Apply the [`gcp-per-infra-iam`](../gcp-per-infra-iam/) module once for each infra, before ClickHouse creates the infra. ClickHouse gives you the spoken name of the infra.
+4. Tell ClickHouse to create the infra with bring your own IAM. You cannot change this setting after the infra is created.
+
+> [!IMPORTANT]
+> Set `include_iam_write_permissions = false` only on a project where every BYOC infra uses bring your own IAM. Do not set it to `false` on a project that already has default-mode infras: those infras need the IAM write permissions, and their reconciles will fail. Use a new dedicated project instead.
+
+```hcl
+module "clickhouse_onboarding" {
+  source                        = "github.com/ClickHouse/terraform-byoc-onboarding.git//modules/gcp?ref=<version>"
+  project_id                    = "replace-with-your-clickhouse-byoc-project-id"
+  include_iam_write_permissions = false
+}
+```
+
+With `include_iam_write_permissions = false`, the ClickHouse management service account does not get these permissions:
+
+- `resourcemanager.projects.setIamPolicy`
+- `iam.serviceAccounts.create`, `delete`, `update`, `setIamPolicy` and the other service account write permissions
+- `iam.roles.create`, `update`, `delete` and `undelete`
+- `storage.buckets.setIamPolicy`
+- `cloudkms.cryptoKeys.setIamPolicy` (BYOC+TDE)
+- `compute.subnetworks.setIamPolicy` (when `include_vpc_write_permissions = true`)
+
+`clickhouseIamRole` keeps its ID and its binding, with read permissions only. A change of the variable updates the roles in place.
+
+ClickHouse keeps these permissions in both modes:
+
+- `iam.serviceAccounts.actAs` in `clickhouseCommonRole`. GKE node pools run as the node service account that you create.
+- `clickhouseWorkloadIdentityBinderRole`, which `gcp-per-infra-iam` grants on 4 service accounts of each infra, not on the project. ClickHouse uses it to add Workload Identity members. A Workload Identity member names a Kubernetes service account in the GKE cluster of the infra, and that cluster does not exist when you apply the module.
+
+This module creates 4 roles only when `include_iam_write_permissions` is `false`: `clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseBucketReaderRole` and `clickhouseWorkloadIdentityBinderRole`. They grant nothing alone. Only `gcp-per-infra-iam` binds them. If you set `include_iam_write_permissions` back to `true`, Terraform deletes the 4 roles. GCP keeps a deleted custom role for 7 days, during which you can undelete it. After that, GCP schedules permanent deletion (7 to 14 days after the delete request) and then runs a 30-day removal process. You cannot create a new role with the same ID until that process finishes, up to 44 days after the delete request. See [Create and manage custom roles](https://cloud.google.com/iam/docs/creating-custom-roles).
+
+IAM Conditions cannot match service account names. So `iam.serviceAccounts.actAs` applies to all service accounts in the project. Together with `clickhouseClusterRole` (`container.clusters.create` and `container.clusters.update`), this lets ClickHouse run a node pool as any service account in the project. Keep no service accounts in the BYOC project other than ClickHouse's and the per-infra ones, and apply this module from a different project. We also recommend the organization policy `iam.disableServiceAccountKeyCreation` on the project.
+
 ## Inputs
 
 | Name | Description | Type | Default | Required |
@@ -82,6 +122,7 @@ ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.obje
 | shared_vpc_host_subnet_region | (Optional) The region of the Shared VPC host subnet. Required only when `shared_vpc_host_project_id` is set | string | `""` | no |
 | shared_vpc_host_private_subnet_id | (Optional) The name of the existing Shared VPC host subnet used for GKE nodes. Required only when `shared_vpc_host_project_id` is set | string | `""` | no |
 | include_tde_permissions | (Optional) Whether to let ClickHouse provision the BYOC+TDE shared resources in this project: one TDE delegate service account and one default Cloud KMS key (KEK) per infra. Grants Cloud KMS key management without any destroy permission — ClickHouse can never destroy key material. Set to `true` before enabling TDE for an infra | bool | `false` | no |
+| include_iam_write_permissions | (Optional) Whether to let ClickHouse create service accounts and custom roles, and change IAM policies, in this project. Set to `false` when you bring your own IAM. See [Bring your own IAM](#bring-your-own-iam-byo-iam) | bool | `true` | no |
 
 ## Outputs
 
@@ -93,6 +134,7 @@ ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.obje
 | shared_vpc_host_role | The ID of the ClickHouse Shared VPC host role granted in the host project, or null when Shared VPC is not used | string |
 | gke_service_agent_member | The service project's GKE service agent granted access to the Shared VPC host project, or null when Shared VPC is not used | string |
 | gke_shared_vpc_firewall_role | The ID of the firewall role granted to the GKE service agent in the host project, or null when Shared VPC is not used | string |
+| clickhouse_byo_iam_role_ids | The IDs of the roles that the `gcp-per-infra-iam` module binds when you bring your own IAM: `dp_mgmt_role`, `dp_mgmt_bucket_role`, `bucket_reader_role`, `workload_identity_binder_role`. Null in default mode (`include_iam_write_permissions = true`), because those roles are not created | map(string) |
 
 ## Resources
 
@@ -112,8 +154,12 @@ ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.obje
 | google_project_iam_custom_role.clickhouse_cluster_role | Role to allow ClickHouse Cloud to manage cluster resources in your project |
 | google_project_iam_custom_role.clickhouse_storage_role | Role to allow ClickHouse Cloud to manage Object Storage buckets in your project; holds no object-level permissions |
 | google_project_iam_custom_role.clickhouse_storage_objects_role | Role holding `storage.objects.list/get/delete`, used only to empty ClickHouse monitoring buckets during infra teardown |
-| google_project_iam_custom_role.clickhouse_iam_role | Role to allow ClickHouse Cloud to manage IAM resources in your project |
+| google_project_iam_custom_role.clickhouse_iam_role | Role to allow ClickHouse Cloud to manage IAM resources in your project; read permissions only when `include_iam_write_permissions` is false |
 | google_project_iam_custom_role.clickhouse_tde_role | Role to allow ClickHouse Cloud to manage the BYOC+TDE key ring, default KEK and key IAM bindings (no destroy permissions); created only when `include_tde_permissions` is true |
+| google_project_iam_custom_role.clickhouse_dp_mgmt_role | [BYO-IAM] Project-level role of the data plane management service account of each infra; holds no permission to grant roles; bound only by `gcp-per-infra-iam`; created only when `include_iam_write_permissions` is false |
+| google_project_iam_custom_role.clickhouse_dp_mgmt_bucket_role | [BYO-IAM] Bucket role of the data plane management service account of each infra; bound only by `gcp-per-infra-iam`, with a condition on the bucket name prefix of the infra; created only when `include_iam_write_permissions` is false |
+| google_project_iam_custom_role.clickhouse_bucket_reader_role | [BYO-IAM] `storage.buckets.get` for the ClickHouse server service account of each infra; bound only by `gcp-per-infra-iam`, with a condition on the bucket name prefix of the infra; created only when `include_iam_write_permissions` is false |
+| google_project_iam_custom_role.clickhouse_workload_identity_binder_role | [BYO-IAM] Lets ClickHouse add Workload Identity members on a service account; granted only on single service accounts by `gcp-per-infra-iam`; created only when `include_iam_write_permissions` is false |
 | google_project_iam_member.clickhouse_sa_roles["common_role"] | Grants `clickhouseCommonRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["vpc_role"] | Grants `clickhouseVPCRole` to ClickHouse Management Service Account |
 | google_project_iam_member.clickhouse_sa_roles["vpc_write_role"] | Grants `clickhouseVPCWriteRole` to ClickHouse Management Service Account; present only when `include_vpc_write_permissions` is true |
