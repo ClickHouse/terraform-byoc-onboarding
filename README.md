@@ -7,6 +7,7 @@ See terraform modules for supported cloud:
 - [AWS](./modules/aws/)
 - [GCP](./modules/gcp/)
 - [Azure](./modules/azure/)
+- [GCP bring your own IAM organization constraint (optional)](./modules/gcp-byo-iam-org-constraint/)
 
 ## Releases
 
