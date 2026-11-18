@@ -21,12 +21,23 @@ provider "azurerm" {
   features {}
 }
 
+module "clickhouse_onboarding" {
+  source = "github.com/ClickHouse/terraform-byoc-onboarding.git//modules/azure?ref=<version>"
+
+  include_iam_write_permissions = false
+}
+
 module "clickhouse_per_infra_iam" {
   source = "github.com/ClickHouse/terraform-byoc-onboarding.git//modules/azure-per-infra-iam?ref=<version>"
 
   # Required — provided by ClickHouse
   spoken_name = "<spoken-name-provided-by-clickhouse>"
   region      = "eastus2"
+
+  onboarding = module.clickhouse_onboarding.byo_iam
+
+  # BYO-VPC only (include_vpc_write_permissions = false on the onboarding module)
+  # vnet_resource_group_name = "<resource-group-of-your-vnet>"
 }
 
 output "data_plane_management_identity_client_id" {
@@ -56,6 +67,16 @@ The module creates the 2 resource groups of the infra, because the identities an
 
 All identities are in the `clickhouse-cloud-<spoken_name>-default` resource group.
 
+The module also gives the ClickHouse service principal access to this infra only. It uses the `onboarding` input:
+
+| Role | Scope |
+|------|-------|
+| ClickHouse BYOC Resource Group Provisioner | `clickhouse-cloud-<spoken_name>-default` and `clickhouse-cloud-<spoken_name>-storage` |
+| ClickHouse BYOC Role Assignment Delegate, with the ABAC condition | `clickhouse-cloud-<spoken_name>-default` |
+| ClickHouse BYOC Network User (only if `vnet_resource_group_name` is set) | `vnet_resource_group_name` |
+
+See [Resource group scope](../azure/README.md#resource-group-scope) for the subscription-level actions that the onboarding module keeps.
+
 The module does not create these resources, because they depend on resources that ClickHouse creates during provisioning:
 
 - The federated identity credentials on the identities. Their issuer is the OIDC issuer of the AKS cluster, or of the ClickHouse management cluster.
@@ -69,6 +90,8 @@ The module does not create these resources, because they depend on resources tha
 |------|-------------|------|---------|:--------:|
 | spoken_name | The spoken name of the BYOC infra, provided by ClickHouse | string | n/a | yes |
 | region | The Azure region (location) of the BYOC infra, for example `eastus2` | string | n/a | yes |
+| onboarding | The `byo_iam` output of the `azure` onboarding module | object | n/a | yes |
+| vnet_resource_group_name | BYO-VPC only. The resource group of your virtual network. Requires `include_vpc_write_permissions = false` on the onboarding module | string | `null` | no |
 | include_tde | Whether to create the BYOC+TDE delegate identity. Set to `true` before you enable TDE for the infra, together with `include_tde_permissions` on the onboarding module | bool | `false` | no |
 | tags | Tags to add to every resource that this module creates | map(string) | `{}` | no |
 

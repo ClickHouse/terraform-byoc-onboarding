@@ -75,7 +75,7 @@ Replace `<version>` with the latest tag from the module's
 With the default `include_iam_write_permissions = true`, ClickHouse creates the managed identities, custom role definitions and role assignments of each BYOC infra. To keep these in your control, do these steps:
 
 1. Set `include_iam_write_permissions = false` on this module.
-2. Apply the [`azure-per-infra-iam`](../azure-per-infra-iam/) module for each infra, before ClickHouse creates the infra.
+2. Apply the [`azure-per-infra-iam`](../azure-per-infra-iam/) module for each infra, before ClickHouse creates the infra. Set its `onboarding` input to the `byo_iam` output of this module.
 3. Send the `data_plane_management_identity_client_id` output of that module to ClickHouse.
 
 With `include_iam_write_permissions = false`, the provisioner role does not get these actions:
@@ -83,6 +83,29 @@ With `include_iam_write_permissions = false`, the provisioner role does not get 
 - `Microsoft.ManagedIdentity/userAssignedIdentities/write` and `/delete`
 - `Microsoft.Authorization/roleDefinitions/write` and `/delete`
 - `Microsoft.Authorization/roleAssignments/write` and `/delete`
+- `Microsoft.Resources/subscriptions/resourceGroups/write` and `/delete`. You create the resource groups of each infra with `azure-per-infra-iam`.
+
+### Resource group scope
+
+With BYO-IAM, the provisioner role that this module assigns on the subscription keeps only the subscription-level actions. All other provisioner actions are in the ClickHouse BYOC Resource Group Provisioner role. The `azure-per-infra-iam` module assigns that role on the 2 resource groups of each infra. So ClickHouse cannot change resources in other resource groups of the subscription.
+
+| Role | Assigned by | Scope |
+|------|-------------|-------|
+| ClickHouse BYOC Resource Group Provisioner | `azure-per-infra-iam` | `clickhouse-cloud-<spoken_name>-default` and `clickhouse-cloud-<spoken_name>-storage` |
+| ClickHouse BYOC Role Assignment Delegate | `azure-per-infra-iam` | `clickhouse-cloud-<spoken_name>-default` |
+| ClickHouse BYOC Network User (BYO-VPC only) | `azure-per-infra-iam` | The resource group of your virtual network (`vnet_resource_group_name`) |
+| ClickHouse BYOC Provisioner (subscription-level actions only) | This module | The subscription |
+
+With BYO-IAM, the ClickHouse BYOC Provisioner role has only the actions that Azure does not allow at resource group scope:
+
+- `Microsoft.Network/register/action`, `Microsoft.ContainerService/register/action`, `Microsoft.ManagedIdentity/register/action` and `Microsoft.Storage/register/action`.
+- `Microsoft.Network/loadBalancers/frontendIPConfigurations/join/action`. For a private API server, ClickHouse puts a Private Link Service in front of the AKS-managed load balancer. That load balancer is in the AKS node resource group (`MC_...`), which AKS creates together with the cluster. This action has no effect without `privateLinkServices/write`, which ClickHouse has only in the infra resource groups.
+- With `include_tde_permissions = true`: `Microsoft.KeyVault/register/action`, `Microsoft.KeyVault/checkNameAvailability/read` and `Microsoft.KeyVault/locations/deletedVaults/read`.
+
+The ClickHouse BYOC Network User role exists only with `include_vpc_write_permissions = false`. It has read access to the virtual network, subnets, public IPs and NAT gateways, and `Microsoft.Network/virtualNetworks/subnets/join/action`.
+
+> [!IMPORTANT]
+> Before you destroy the `azure-per-infra-iam` module of an infra, make sure that ClickHouse deleted the infra. If you remove the role assignments first, ClickHouse cannot delete the infra resources.
 
 ClickHouse keeps these actions in both modes:
 
@@ -90,15 +113,17 @@ ClickHouse keeps these actions in both modes:
 - `Microsoft.ManagedIdentity/userAssignedIdentities/assign/action`.
 - Read, write and delete of federated identity credentials. Each credential binds 1 of your identities to a Kubernetes service account. The issuer of most credentials is the AKS cluster that ClickHouse creates, so you cannot create them in advance. ClickHouse also adds 1 credential for each ClickHouse instance.
 
-Some role assignments have a scope or a principal that ClickHouse creates during provisioning. For these, the module adds the `ClickHouse BYOC Role Assignment Delegate` role. An [ABAC condition](https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-overview) on that assignment lets ClickHouse create and delete role assignments only for these built-in roles:
+Some role assignments have a scope or a principal that ClickHouse creates during provisioning. For these, the module adds the `ClickHouse BYOC Role Assignment Delegate` role. The `azure-per-infra-iam` module assigns it on the default resource group of each infra, with an [ABAC condition](https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-overview). The condition lets ClickHouse create and delete a role assignment only if the role and the principal match 1 of these rows:
 
-| Role | Principal | Scope |
-|------|-----------|-------|
-| Network Contributor | The AKS cluster service principal | The infra's default resource group |
+| Role | Allowed principal | Scope that ClickHouse uses |
+|------|-------------------|----------------------------|
+| Network Contributor | Any principal except the ClickHouse service principal. ClickHouse uses it for the AKS cluster service principal, which it creates | The infra's default resource group |
 | Azure Kubernetes Service Cluster Admin Role | The data-plane-mgmt identity | The AKS cluster |
+| Azure Kubernetes Service Cluster User Role | The data-plane-mgmt identity | The AKS cluster (only with autoscaling) |
+| Azure Kubernetes Service RBAC Cluster Admin | The data-plane-mgmt identity | The AKS cluster (only with autoscaling) |
 | Key Vault Crypto User | The TDE delegate, data-plane-mgmt and ClickHouse pod identities | The TDE and named-collections key vaults |
 
-ClickHouse cannot assign any other role, so it cannot grant Owner, Contributor, User Access Administrator or a custom role. The condition does not limit the scope or the principal of these 3 roles. The role assignment is at subscription scope, because the infra resource groups do not exist when you apply this module.
+ClickHouse cannot assign any other role, so it cannot grant Owner, Contributor, User Access Administrator or a custom role. ClickHouse also cannot give these roles to its own service principal, so it cannot get cryptographic use of your TDE key. A role assignment condition cannot limit the scope, so each row applies to the whole default resource group of the infra and the resources in it.
 
 The Microsoft Graph permission `Application.ReadWrite.OwnedBy` stays in both modes. ClickHouse uses it to create the Entra application of the AKS cluster. The application is multitenant, because the cluster also uses it to pull images from the ClickHouse container registry.
 
@@ -109,6 +134,7 @@ The Microsoft Graph permission `Application.ReadWrite.OwnedBy` stays in both mod
 | tenant_id | The Azure AD tenant ID |
 | subscription_id | The Azure subscription ID |
 | service_principal_client_id | The application (client) ID of the service principal |
+| byo_iam | BYO-IAM only. The service principal object ID, the role definition IDs and the ABAC condition. Set the `onboarding` input of each `azure-per-infra-iam` module to this value. `null` when `include_iam_write_permissions = true` |
 
 ## Resources
 
@@ -116,10 +142,11 @@ The Microsoft Graph permission `Application.ReadWrite.OwnedBy` stays in both mod
 |------|------|
 | azuread_service_principal.this | Service Principal for ClickHouse BYOC application |
 | azurerm_role_definition.clickhouse_byoc_provisioner | Custom role for ClickHouse to provision Azure BYOC infrastructure resources |
-| azurerm_role_assignment.this | Assigns 'ClickHouse BYOC Provisioner' role to the service principal |
+| azurerm_role_assignment.this | Assigns 'ClickHouse BYOC Provisioner' role to the service principal on the subscription. With BYO-IAM the role has only the subscription-level actions |
 | azuread_app_role_assignment.graph_permissions["Application.ReadWrite.OwnedBy"] | Grants Application.ReadWrite.OwnedBy Microsoft Graph permission |
-| azurerm_role_definition.clickhouse_byoc_role_assignment_delegate | BYO-IAM only. Custom role with the role assignment actions |
-| azurerm_role_assignment.role_assignment_delegate | BYO-IAM only. Assigns the delegate role to the service principal, with a condition that allows only the built-in roles listed in [Bring your own IAM](#bring-your-own-iam-byo-iam) |
+| azurerm_role_definition.clickhouse_byoc_role_assignment_delegate | BYO-IAM only. Custom role with the role assignment actions. Assigned by `azure-per-infra-iam` |
+| azurerm_role_definition.clickhouse_byoc_resource_group_provisioner | BYO-IAM only. Custom role with the provisioner actions that work at resource group scope. Assigned by `azure-per-infra-iam` on the infra resource groups |
+| azurerm_role_definition.clickhouse_byoc_network_user | BYO-IAM with `include_vpc_write_permissions = false` only. Custom role with read and join access to your virtual network. Assigned by `azure-per-infra-iam` |
 
 ## Requirements
 

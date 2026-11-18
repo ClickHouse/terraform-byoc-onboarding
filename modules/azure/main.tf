@@ -14,7 +14,7 @@ resource "azuread_service_principal" "this" {
   owners = [data.azuread_client_config.current.object_id]
 }
 
-# Assign proper role definitions to the service principle
+# Assign proper role definitions to the service principle (see roles.tf for the BYO-IAM content)
 resource "azurerm_role_assignment" "this" {
   scope              = data.azurerm_subscription.current.id
   role_definition_id = azurerm_role_definition.clickhouse_byoc_provisioner.role_definition_resource_id
@@ -27,15 +27,4 @@ resource "azuread_app_role_assignment" "graph_permissions" {
   app_role_id         = each.value
   principal_object_id = azuread_service_principal.this.object_id
   resource_object_id  = data.azuread_service_principal.microsoft_graph.object_id
-}
-
-# BYO-IAM only: constrained role assignment rights (see roles.tf)
-resource "azurerm_role_assignment" "role_assignment_delegate" {
-  count = var.include_iam_write_permissions ? 0 : 1
-
-  scope              = data.azurerm_subscription.current.id
-  role_definition_id = azurerm_role_definition.clickhouse_byoc_role_assignment_delegate[0].role_definition_resource_id
-  principal_id       = azuread_service_principal.this.object_id
-  condition          = local.byo_iam_role_assignment_condition
-  condition_version  = "2.0"
 }

@@ -1,12 +1,39 @@
 locals {
+  # BYO-IAM (include_iam_write_permissions = false): the provisioner role and the role assignment
+  # delegate are not assigned on the subscription. The azure-per-infra-iam module assigns them on
+  # the resource groups of each infra, which it creates. Only the actions that Azure does not
+  # allow at resource group scope stay on the subscription, in the subscription provisioner role.
+  byo_iam = !var.include_iam_write_permissions
+
+  # Subscription-level operations: a resource group scope cannot grant them.
+  resource_provider_registration_actions = [
+    "Microsoft.Network/register/action",
+    "Microsoft.ContainerService/register/action",
+    "Microsoft.ManagedIdentity/register/action",
+    "Microsoft.Storage/register/action",
+  ]
+
+  # Resource groups only exist at subscription scope. Under BYO-IAM the customer creates them with
+  # azure-per-infra-iam and ClickHouse only reads them (the resource group provisioner role keeps
+  # resourceGroups/read on its own).
+  resource_group_actions = [
+    "Microsoft.Resources/subscriptions/resourceGroups/read",
+    "Microsoft.Resources/subscriptions/resourceGroups/write",
+    "Microsoft.Resources/subscriptions/resourceGroups/delete",
+  ]
+
   # BYOC+TDE control-plane actions: create and read the infra's default Key Vault (RBAC mode)
   # holding the shared KEK. Deliberately NO vaults/delete and NO deletedVaults purge — key
   # material must never be destroyable by ClickHouse's identity (the vault is orphaned on infra
   # teardown and remains the customer's).
-  tde_keyvault_actions = [
+  # Split in 2: provider registration, the vault name check and the deleted-vault lookup are
+  # subscription-level operations.
+  tde_keyvault_subscription_actions = [
     "Microsoft.KeyVault/register/action",
     "Microsoft.KeyVault/checkNameAvailability/read",
     "Microsoft.KeyVault/locations/deletedVaults/read",
+  ]
+  tde_keyvault_actions = [
     "Microsoft.KeyVault/vaults/read",
     "Microsoft.KeyVault/vaults/write",
   ]
@@ -58,50 +85,28 @@ locals {
     "Microsoft.Authorization/roleAssignments/delete",
   ]
 
-  # BYO-IAM: built-in roles ClickHouse may still assign. Each covers an assignment whose scope or
-  # principal is created by ClickHouse during provisioning, so the customer cannot create it in
-  # advance:
+  # BYO-IAM: built-in roles ClickHouse may still assign. Each covers an assignment that the
+  # crossplane-xrd composition (composition-xbridgeiamrole.tpl, composition-xk8sclusters.tpl)
+  # makes in the customer subscription also under skipIAMCreation, because its scope or principal
+  # only exists once ClickHouse creates it:
   # - Network Contributor: the AKS cluster service principal (an Entra app ClickHouse creates,
   #   multitenant so it can also pull from the ClickHouse container registry) on the infra's
   #   default resource group.
   # - Azure Kubernetes Service Cluster Admin Role: the data-plane-mgmt identity on the AKS cluster.
+  # - Azure Kubernetes Service Cluster User Role and Azure Kubernetes Service RBAC Cluster Admin:
+  #   the data-plane-mgmt identity on the AKS cluster, for the clickhouse-recommender when
+  #   autoscaling is enabled.
   # - Key Vault Crypto User: the TDE delegate identity on the TDE vault, and the data-plane-mgmt
   #   and ClickHouse pod identities on the named-collections vault.
-  byo_iam_assignable_role_names = [
-    "Network Contributor",
-    "Azure Kubernetes Service Cluster Admin Role",
-    "Key Vault Crypto User",
-  ]
-
-  byo_iam_assignable_role_ids = join(", ", [
-    for role in data.azurerm_role_definition.byo_iam_assignable : basename(role.role_definition_id)
-  ])
-
-  # ABAC condition on the BYO-IAM role assignment delegate: ClickHouse can create and delete role
-  # assignments only for the roles above, so it can never grant Owner, Contributor, User Access
-  # Administrator or any custom role.
-  # https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-examples
-  byo_iam_role_assignment_condition = <<-EOT
-    (
-     (
-      !(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})
-     )
-     OR
-     (
-      @Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.byo_iam_assignable_role_ids}}
-     )
-    )
-    AND
-    (
-     (
-      !(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})
-     )
-     OR
-     (
-      @Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.byo_iam_assignable_role_ids}}
-     )
-    )
-  EOT
+  # The ABAC condition that pairs each role with its allowed principals is built per infra by
+  # azure-per-infra-iam, which creates those identities.
+  byo_iam_assignable_roles = {
+    network_contributor    = "Network Contributor"
+    aks_cluster_admin      = "Azure Kubernetes Service Cluster Admin Role"
+    aks_cluster_user       = "Azure Kubernetes Service Cluster User Role"
+    aks_rbac_cluster_admin = "Azure Kubernetes Service RBAC Cluster Admin"
+    key_vault_crypto_user  = "Key Vault Crypto User"
+  }
 
   # Private API server actions: ClickHouse fronts the private AKS API server's internal load
   # balancer with a Private Link Service so the ClickHouse management plane can reach it without a
@@ -111,87 +116,146 @@ locals {
   # mode is a per-infra setting, so gating it would break a later private infra until re-apply.
   # The validator still probes these under GroupPrivateAPIServer only for private infras, so
   # subscriptions onboarded before they were added keep validating for public infras.
-  private_api_server_actions = [
+  private_link_service_actions = [
     "Microsoft.Network/privateLinkServices/read",
     "Microsoft.Network/privateLinkServices/write",
     "Microsoft.Network/privateLinkServices/delete",
+  ]
+  # The AKS-managed kube-apiserver load balancer is in the AKS node resource group (MC_...), which
+  # AKS creates together with the cluster. Under BYO-IAM no resource-group-scoped assignment can
+  # cover it in advance, so this action stays in the subscription-assigned provisioner role. It is only usable
+  # together with privateLinkServices/write, which is limited to the infra resource groups.
+  node_resource_group_actions = [
     "Microsoft.Network/loadBalancers/frontendIPConfigurations/join/action",
+  ]
+
+  # Infra resource actions, granted in both IAM modes. In the subscription-scoped flow they are in
+  # the provisioner role; under BYO-IAM they are in the resource group provisioner role, which
+  # azure-per-infra-iam assigns on the infra resource groups only.
+  infra_actions = [
+    # Virtual Networks & Subnets (read + join in both VNet modes; write/delete in vpc_write_actions)
+    "Microsoft.Network/virtualNetworks/read",
+    "Microsoft.Network/virtualNetworks/subnets/read",
+    "Microsoft.Network/virtualNetworks/subnets/join/action",
+
+    # Public IPs & NAT Gateways (read in both VNet modes; write/delete/join in vpc_write_actions)
+    "Microsoft.Network/publicIPAddresses/read",
+    "Microsoft.Network/natGateways/read",
+
+    # NSG (managed by ClickHouse in both VNet modes)
+    "Microsoft.Network/networkSecurityGroups/read",
+    "Microsoft.Network/networkSecurityGroups/write",
+    "Microsoft.Network/networkSecurityGroups/delete",
+    "Microsoft.Network/networkSecurityGroups/join/action",
+    "Microsoft.Network/networkSecurityGroups/securityRules/read",
+    "Microsoft.Network/networkSecurityGroups/securityRules/write",
+    "Microsoft.Network/networkSecurityGroups/securityRules/delete",
+
+    # Storage Accounts & Containers. No delete actions: ClickHouse never deletes the storage
+    # accounts or containers holding your data (they are orphaned on infra teardown).
+    "Microsoft.Storage/storageAccounts/read",
+    "Microsoft.Storage/storageAccounts/write",
+    "Microsoft.Storage/storageAccounts/listkeys/action",
+    "Microsoft.Storage/storageAccounts/blobServices/read",
+    "Microsoft.Storage/storageAccounts/blobServices/write",
+    "Microsoft.Storage/storageAccounts/blobServices/containers/read",
+    "Microsoft.Storage/storageAccounts/blobServices/containers/write",
+    "Microsoft.Storage/storageAccounts/fileServices/read",
+
+    # AKS Clusters & Node Pools
+    "Microsoft.ContainerService/managedClusters/read",
+    "Microsoft.ContainerService/managedClusters/write",
+    "Microsoft.ContainerService/managedClusters/delete",
+    "Microsoft.ContainerService/managedClusters/agentPools/read",
+    "Microsoft.ContainerService/managedClusters/agentPools/write",
+    "Microsoft.ContainerService/managedClusters/agentPools/delete",
+    "Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action",
+    "Microsoft.ContainerService/managedClusters/listClusterUserCredential/action",
+
+    # Managed Identities & Federated Credentials (read, assign and federation in both IAM modes;
+    # identity write/delete in iam_write_actions)
+    "Microsoft.ManagedIdentity/userAssignedIdentities/read",
+    "Microsoft.ManagedIdentity/userAssignedIdentities/assign/action",
+    "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/read",
+    "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/write",
+    "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/delete",
+
+    # Role Definitions & Assignments (read in both IAM modes; write/delete in iam_write_actions,
+    # or the constrained clickhouse_byoc_role_assignment_delegate role under BYO-IAM)
+    "Microsoft.Authorization/roleDefinitions/read",
+    "Microsoft.Authorization/roleAssignments/read",
+  ]
+
+  # BYO-IAM with BYO-VPC: read the customer VNet and join its subnets. Assigned by
+  # azure-per-infra-iam on the resource group of the customer VNet.
+  network_user_actions = [
+    "Microsoft.Network/virtualNetworks/read",
+    "Microsoft.Network/virtualNetworks/subnets/read",
+    "Microsoft.Network/virtualNetworks/subnets/join/action",
+    "Microsoft.Network/publicIPAddresses/read",
+    "Microsoft.Network/natGateways/read",
   ]
 }
 
+# Always assigned on the subscription (main.tf).
+# Subscription-scoped flow: every provisioner action. The action order is unchanged from earlier
+# releases, so existing onboardings plan no diff.
+# BYO-IAM: only the actions that Azure does not allow at resource group scope, or that target the
+# AKS node resource group. Everything else is in clickhouse_byoc_resource_group_provisioner.
 resource "azurerm_role_definition" "clickhouse_byoc_provisioner" {
   name        = "ClickHouse BYOC Provisioner (${var.environment})"
   scope       = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
   description = "Least-privilege custom role for ClickHouse to provision Azure BYOC infrastructure resources"
 
   permissions {
-    actions = concat([
-      # Resource Provider Registration
-      "Microsoft.Network/register/action",
-      "Microsoft.ContainerService/register/action",
-      "Microsoft.ManagedIdentity/register/action",
-      "Microsoft.Storage/register/action",
+    actions = concat(
+      local.resource_provider_registration_actions,
+      local.byo_iam ? [] : concat(
+        local.resource_group_actions,
+        local.infra_actions,
+        var.include_vpc_write_permissions ? local.vpc_write_actions : [],
+        local.iam_write_actions,
+        local.private_link_service_actions,
+      ),
+      local.node_resource_group_actions,
+      var.include_tde_permissions ? local.tde_keyvault_subscription_actions : [],
+      var.include_tde_permissions && !local.byo_iam ? local.tde_keyvault_actions : [],
+    )
 
-      # Resource Groups
-      "Microsoft.Resources/subscriptions/resourceGroups/read",
-      "Microsoft.Resources/subscriptions/resourceGroups/write",
-      "Microsoft.Resources/subscriptions/resourceGroups/delete",
+    not_actions = []
 
-      # Virtual Networks & Subnets (read + join in both VNet modes; write/delete in vpc_write_actions)
-      "Microsoft.Network/virtualNetworks/read",
-      "Microsoft.Network/virtualNetworks/subnets/read",
-      "Microsoft.Network/virtualNetworks/subnets/join/action",
+    data_actions = var.include_tde_permissions && !local.byo_iam ? local.tde_keyvault_data_actions : []
+  }
 
-      # Public IPs & NAT Gateways (read in both VNet modes; write/delete/join in vpc_write_actions)
-      "Microsoft.Network/publicIPAddresses/read",
-      "Microsoft.Network/natGateways/read",
+  assignable_scopes = [
+    "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+  ]
+}
 
-      # NSG (managed by ClickHouse in both VNet modes)
-      "Microsoft.Network/networkSecurityGroups/read",
-      "Microsoft.Network/networkSecurityGroups/write",
-      "Microsoft.Network/networkSecurityGroups/delete",
-      "Microsoft.Network/networkSecurityGroups/join/action",
-      "Microsoft.Network/networkSecurityGroups/securityRules/read",
-      "Microsoft.Network/networkSecurityGroups/securityRules/write",
-      "Microsoft.Network/networkSecurityGroups/securityRules/delete",
+data "azurerm_role_definition" "byo_iam_assignable" {
+  for_each = local.byo_iam ? local.byo_iam_assignable_roles : {}
 
-      # Storage Accounts & Containers. No delete actions: ClickHouse never deletes the storage
-      # accounts or containers holding your data (they are orphaned on infra teardown).
-      "Microsoft.Storage/storageAccounts/read",
-      "Microsoft.Storage/storageAccounts/write",
-      "Microsoft.Storage/storageAccounts/listkeys/action",
-      "Microsoft.Storage/storageAccounts/blobServices/read",
-      "Microsoft.Storage/storageAccounts/blobServices/write",
-      "Microsoft.Storage/storageAccounts/blobServices/containers/read",
-      "Microsoft.Storage/storageAccounts/blobServices/containers/write",
-      "Microsoft.Storage/storageAccounts/fileServices/read",
+  name  = each.value
+  scope = data.azurerm_subscription.current.id
+}
 
-      # AKS Clusters & Node Pools
-      "Microsoft.ContainerService/managedClusters/read",
-      "Microsoft.ContainerService/managedClusters/write",
-      "Microsoft.ContainerService/managedClusters/delete",
-      "Microsoft.ContainerService/managedClusters/agentPools/read",
-      "Microsoft.ContainerService/managedClusters/agentPools/write",
-      "Microsoft.ContainerService/managedClusters/agentPools/delete",
-      "Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action",
-      "Microsoft.ContainerService/managedClusters/listClusterUserCredential/action",
+# BYO-IAM only: the provisioner actions that work at resource group scope. Assigned by
+# azure-per-infra-iam on the default and storage resource groups of each infra, so ClickHouse
+# cannot change resources in other resource groups. No resource group write/delete: the customer
+# creates the resource groups with azure-per-infra-iam.
+resource "azurerm_role_definition" "clickhouse_byoc_resource_group_provisioner" {
+  count = local.byo_iam ? 1 : 0
 
-      # Managed Identities & Federated Credentials (read, assign and federation in both IAM modes;
-      # identity write/delete in iam_write_actions)
-      "Microsoft.ManagedIdentity/userAssignedIdentities/read",
-      "Microsoft.ManagedIdentity/userAssignedIdentities/assign/action",
-      "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/read",
-      "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/write",
-      "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/delete",
+  name        = "ClickHouse BYOC Resource Group Provisioner (${var.environment})"
+  scope       = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+  description = "Custom role for ClickHouse to provision the resources of a bring-your-own-IAM BYOC infrastructure, assigned on the resource groups of the infrastructure only"
 
-      # Role Definitions & Assignments (read in both IAM modes; write/delete in iam_write_actions,
-      # or the constrained clickhouse_byoc_role_assignment_delegate role under BYO-IAM)
-      "Microsoft.Authorization/roleDefinitions/read",
-      "Microsoft.Authorization/roleAssignments/read",
-      ],
+  permissions {
+    actions = concat(
+      ["Microsoft.Resources/subscriptions/resourceGroups/read"],
+      local.infra_actions,
       var.include_vpc_write_permissions ? local.vpc_write_actions : [],
-      var.include_iam_write_permissions ? local.iam_write_actions : [],
-      local.private_api_server_actions,
+      local.private_link_service_actions,
       var.include_tde_permissions ? local.tde_keyvault_actions : [],
     )
 
@@ -205,17 +269,29 @@ resource "azurerm_role_definition" "clickhouse_byoc_provisioner" {
   ]
 }
 
-data "azurerm_role_definition" "byo_iam_assignable" {
-  for_each = var.include_iam_write_permissions ? toset([]) : toset(local.byo_iam_assignable_role_names)
+# BYO-IAM with BYO-VPC only: read and join access to the customer VNet. Assigned by
+# azure-per-infra-iam on the resource group of the VNet.
+resource "azurerm_role_definition" "clickhouse_byoc_network_user" {
+  count = local.byo_iam && !var.include_vpc_write_permissions ? 1 : 0
 
-  name  = each.value
-  scope = data.azurerm_subscription.current.id
+  name        = "ClickHouse BYOC Network User (${var.environment})"
+  scope       = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+  description = "Read access to a customer-managed virtual network and permission to join its subnets, for a bring-your-own-IAM BYOC infrastructure."
+
+  permissions {
+    actions     = local.network_user_actions
+    not_actions = []
+  }
+
+  assignable_scopes = [
+    "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+  ]
 }
 
-# BYO-IAM only: lets ClickHouse create and delete role assignments, restricted by
-# local.byo_iam_role_assignment_condition (set on the assignment in main.tf) to the built-in
-# roles in local.byo_iam_assignable_role_names. Kept separate from the provisioner role so the
-# condition constrains nothing else.
+# BYO-IAM only: lets ClickHouse create and delete role assignments. azure-per-infra-iam assigns it
+# on the infra's default resource group with an ABAC condition that allows only the built-in
+# roles in local.byo_iam_assignable_roles, each for its expected principals. Kept separate from
+# the provisioner role so the condition constrains nothing else.
 resource "azurerm_role_definition" "clickhouse_byoc_role_assignment_delegate" {
   count = var.include_iam_write_permissions ? 0 : 1
 

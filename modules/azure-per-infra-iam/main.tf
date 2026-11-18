@@ -12,7 +12,8 @@
 # - The AKS cluster's Entra application/service principal and its Network Contributor assignment,
 #   the data-plane-mgmt Azure Kubernetes Service Cluster Admin Role assignment on the cluster, and
 #   the Key Vault Crypto User assignments on the TDE / named-collections vaults. ClickHouse makes
-#   these through the constrained role assignment delegate of the onboarding module.
+#   these through the constrained role assignment delegate of the onboarding module, which this
+#   module assigns on the default resource group.
 
 locals {
   default_resource_group_name = "clickhouse-cloud-${var.spoken_name}-default"
@@ -33,6 +34,67 @@ locals {
   ]
 
   tags = merge(var.tags, { clickhouse-byoc = "true" })
+
+  # ABAC condition on the role assignment delegate. ClickHouse can create and delete a role
+  # assignment only when the role and the principal match 1 of these pairs, which are the
+  # assignments the crossplane-xrd composition makes under skipIAMCreation:
+  # - Network Contributor, for any principal except the ClickHouse service principal itself. The
+  #   principal is the AKS cluster service principal, which ClickHouse creates later, so it
+  #   cannot be listed here.
+  # - The AKS Cluster Admin, Cluster User and RBAC Cluster Admin roles, for data-plane-mgmt only.
+  # - Key Vault Crypto User, for the TDE delegate, data-plane-mgmt and ClickHouse pod identities
+  #   only. So ClickHouse can never give its own identity cryptographic use of the TDE key.
+  # Role assignment conditions cannot test the scope, so each pair applies anywhere in the
+  # default resource group, which is the scope of the delegate assignment.
+  # https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-examples
+  role_ids = var.onboarding.assignable_role_ids
+
+  key_vault_crypto_user_principal_ids = flatten([
+    azurerm_user_assigned_identity.data_plane_mgmt.principal_id,
+    azurerm_user_assigned_identity.clickhouse.principal_id,
+    azurerm_user_assigned_identity.tde_delegate[*].principal_id,
+  ])
+
+  # @ATTR is @Request for a new assignment (write) and @Resource for an existing one (delete).
+  role_assignment_rule = <<-EOT
+    (
+     (
+      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.role_ids.network_contributor}}
+      AND
+      @ATTR[Microsoft.Authorization/roleAssignments:PrincipalId] ForAnyOfAllValues:GuidNotEquals {${var.onboarding.service_principal_object_id}}
+     )
+     OR
+     (
+      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.role_ids.aks_cluster_admin}, ${local.role_ids.aks_cluster_user}, ${local.role_ids.aks_rbac_cluster_admin}}
+      AND
+      @ATTR[Microsoft.Authorization/roleAssignments:PrincipalId] ForAnyOfAnyValues:GuidEquals {${azurerm_user_assigned_identity.data_plane_mgmt.principal_id}}
+     )
+     OR
+     (
+      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.role_ids.key_vault_crypto_user}}
+      AND
+      @ATTR[Microsoft.Authorization/roleAssignments:PrincipalId] ForAnyOfAnyValues:GuidEquals {${join(", ", local.key_vault_crypto_user_principal_ids)}}
+     )
+    )
+  EOT
+
+  role_assignment_delegate_condition = <<-EOT
+    (
+     (
+      !(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})
+     )
+     OR
+     ${trimspace(replace(local.role_assignment_rule, "@ATTR", "@Request"))}
+    )
+    AND
+    (
+     (
+      !(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})
+     )
+     OR
+     ${trimspace(replace(local.role_assignment_rule, "@ATTR", "@Resource"))}
+    )
+  EOT
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -50,6 +112,61 @@ resource "azurerm_resource_group" "storage" {
   name     = local.storage_resource_group_name
   location = var.region
   tags     = local.tags
+}
+
+# ---------------------------------------------------------------------------------------------
+# ClickHouse provisioner (the BYOC service principal of the onboarding module). Under BYO-IAM
+# its roles are scoped to the resource groups of the infra instead of the subscription. Only the
+# subscription-level actions (resource provider registration, the AKS node resource group load
+# balancer join, the Key Vault name checks) stay in the ClickHouse BYOC Provisioner role that the
+# onboarding module assigns on the subscription.
+# ---------------------------------------------------------------------------------------------
+
+resource "azurerm_role_assignment" "clickhouse_provisioner" {
+  for_each = {
+    default = azurerm_resource_group.default.id
+    storage = azurerm_resource_group.storage.id
+  }
+
+  scope              = each.value
+  role_definition_id = var.onboarding.resource_group_provisioner_role_definition_id
+  principal_id       = var.onboarding.service_principal_object_id
+  principal_type     = "ServicePrincipal"
+}
+
+# Every role assignment ClickHouse still makes under BYO-IAM is in the default resource group:
+# Network Contributor on the resource group itself, the AKS roles on the AKS cluster, and Key
+# Vault Crypto User on the TDE and named-collections vaults. The ABAC condition
+# (local.role_assignment_delegate_condition) limits it to those roles and their principals.
+resource "azurerm_role_assignment" "clickhouse_role_assignment_delegate" {
+  scope              = azurerm_resource_group.default.id
+  role_definition_id = var.onboarding.role_assignment_delegate_role_definition_id
+  principal_id       = var.onboarding.service_principal_object_id
+  principal_type     = "ServicePrincipal"
+  condition          = local.role_assignment_delegate_condition
+  condition_version  = "2.0"
+}
+
+data "azurerm_resource_group" "vnet" {
+  count = var.vnet_resource_group_name == null ? 0 : 1
+
+  name = var.vnet_resource_group_name
+}
+
+resource "azurerm_role_assignment" "clickhouse_network_user" {
+  count = var.vnet_resource_group_name == null ? 0 : 1
+
+  scope              = data.azurerm_resource_group.vnet[0].id
+  role_definition_id = var.onboarding.network_user_role_definition_id
+  principal_id       = var.onboarding.service_principal_object_id
+  principal_type     = "ServicePrincipal"
+
+  lifecycle {
+    precondition {
+      condition     = var.onboarding.network_user_role_definition_id != null
+      error_message = "vnet_resource_group_name requires include_vpc_write_permissions = false on the azure onboarding module."
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------------------------
