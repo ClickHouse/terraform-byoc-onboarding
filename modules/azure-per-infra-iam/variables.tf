@@ -19,14 +19,7 @@ variable "onboarding" {
     service_principal_object_id                   = string
     resource_group_provisioner_role_definition_id = string
     role_assignment_delegate_role_definition_id   = string
-    assignable_role_ids = object({
-      network_contributor    = string
-      aks_cluster_admin      = string
-      aks_cluster_user       = string
-      aks_rbac_cluster_admin = string
-      key_vault_crypto_user  = string
-    })
-    network_user_role_definition_id = optional(string)
+    network_user_role_definition_id               = optional(string)
   })
   nullable    = false
   description = "(Required) The `byo_iam` output of the `azure` onboarding module, applied with `include_iam_write_permissions = false`. This module assigns the ClickHouse provisioner and role assignment delegate roles on the resource groups of this infra only."

@@ -35,6 +35,29 @@ locals {
 
   tags = merge(var.tags, { clickhouse-byoc = "true" })
 
+  # The built-in roles that ClickHouse may still assign. Each covers an assignment that the
+  # crossplane-xrd composition (composition-xbridgeiamrole.tpl, composition-xk8sclusters.tpl)
+  # makes in the customer subscription also under skipIAMCreation, because its scope or principal
+  # only exists once ClickHouse creates it:
+  # - Network Contributor: the AKS cluster service principal (an Entra app ClickHouse creates,
+  #   multitenant so it can also pull from the ClickHouse container registry) on the infra's
+  #   default resource group.
+  # - Azure Kubernetes Service Cluster Admin Role: the data-plane-mgmt identity on the AKS cluster.
+  # - Azure Kubernetes Service Cluster User Role and Azure Kubernetes Service RBAC Cluster Admin:
+  #   the data-plane-mgmt identity on the AKS cluster, for the clickhouse-recommender when
+  #   autoscaling is enabled.
+  # - Key Vault Crypto User: the TDE delegate identity on the TDE vault, and the data-plane-mgmt
+  #   and ClickHouse pod identities on the named-collections vault.
+  # Built-in role IDs are the same in every tenant and subscription:
+  # https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
+  assignable_role_ids = {
+    network_contributor    = "4d97b98b-1d4f-4787-a291-c67834d212e7" # Network Contributor
+    aks_cluster_admin      = "0ab0b1a8-8aac-4efd-b8c2-3ee1fb270be8" # Azure Kubernetes Service Cluster Admin Role
+    aks_cluster_user       = "4abbcc35-e782-43d8-92c5-2d3f1bd2253f" # Azure Kubernetes Service Cluster User Role
+    aks_rbac_cluster_admin = "b1ff04bb-8a4e-4dc4-8eb5-8693973ce19b" # Azure Kubernetes Service RBAC Cluster Admin
+    key_vault_crypto_user  = "12338af0-0e69-4776-bea7-57ae8d297424" # Key Vault Crypto User
+  }
+
   # ABAC condition on the role assignment delegate. ClickHouse can create and delete a role
   # assignment only when the role and the principal match 1 of these pairs, which are the
   # assignments the crossplane-xrd composition makes under skipIAMCreation:
@@ -47,8 +70,6 @@ locals {
   # Role assignment conditions cannot test the scope, so each pair applies anywhere in the
   # default resource group, which is the scope of the delegate assignment.
   # https://learn.microsoft.com/en-us/azure/role-based-access-control/delegate-role-assignments-examples
-  role_ids = var.onboarding.assignable_role_ids
-
   key_vault_crypto_user_principal_ids = flatten([
     azurerm_user_assigned_identity.data_plane_mgmt.principal_id,
     azurerm_user_assigned_identity.clickhouse.principal_id,
@@ -59,19 +80,19 @@ locals {
   role_assignment_rule = <<-EOT
     (
      (
-      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.role_ids.network_contributor}}
+      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.assignable_role_ids.network_contributor}}
       AND
       @ATTR[Microsoft.Authorization/roleAssignments:PrincipalId] ForAnyOfAllValues:GuidNotEquals {${var.onboarding.service_principal_object_id}}
      )
      OR
      (
-      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.role_ids.aks_cluster_admin}, ${local.role_ids.aks_cluster_user}, ${local.role_ids.aks_rbac_cluster_admin}}
+      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.assignable_role_ids.aks_cluster_admin}, ${local.assignable_role_ids.aks_cluster_user}, ${local.assignable_role_ids.aks_rbac_cluster_admin}}
       AND
       @ATTR[Microsoft.Authorization/roleAssignments:PrincipalId] ForAnyOfAnyValues:GuidEquals {${azurerm_user_assigned_identity.data_plane_mgmt.principal_id}}
      )
      OR
      (
-      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.role_ids.key_vault_crypto_user}}
+      @ATTR[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {${local.assignable_role_ids.key_vault_crypto_user}}
       AND
       @ATTR[Microsoft.Authorization/roleAssignments:PrincipalId] ForAnyOfAnyValues:GuidEquals {${join(", ", local.key_vault_crypto_user_principal_ids)}}
      )

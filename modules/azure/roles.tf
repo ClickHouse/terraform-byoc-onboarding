@@ -85,29 +85,6 @@ locals {
     "Microsoft.Authorization/roleAssignments/delete",
   ]
 
-  # BYO-IAM: built-in roles ClickHouse may still assign. Each covers an assignment that the
-  # crossplane-xrd composition (composition-xbridgeiamrole.tpl, composition-xk8sclusters.tpl)
-  # makes in the customer subscription also under skipIAMCreation, because its scope or principal
-  # only exists once ClickHouse creates it:
-  # - Network Contributor: the AKS cluster service principal (an Entra app ClickHouse creates,
-  #   multitenant so it can also pull from the ClickHouse container registry) on the infra's
-  #   default resource group.
-  # - Azure Kubernetes Service Cluster Admin Role: the data-plane-mgmt identity on the AKS cluster.
-  # - Azure Kubernetes Service Cluster User Role and Azure Kubernetes Service RBAC Cluster Admin:
-  #   the data-plane-mgmt identity on the AKS cluster, for the clickhouse-recommender when
-  #   autoscaling is enabled.
-  # - Key Vault Crypto User: the TDE delegate identity on the TDE vault, and the data-plane-mgmt
-  #   and ClickHouse pod identities on the named-collections vault.
-  # The ABAC condition that pairs each role with its allowed principals is built per infra by
-  # azure-per-infra-iam, which creates those identities.
-  byo_iam_assignable_roles = {
-    network_contributor    = "Network Contributor"
-    aks_cluster_admin      = "Azure Kubernetes Service Cluster Admin Role"
-    aks_cluster_user       = "Azure Kubernetes Service Cluster User Role"
-    aks_rbac_cluster_admin = "Azure Kubernetes Service RBAC Cluster Admin"
-    key_vault_crypto_user  = "Key Vault Crypto User"
-  }
-
   # Private API server actions: ClickHouse fronts the private AKS API server's internal load
   # balancer with a Private Link Service so the ClickHouse management plane can reach it without a
   # public endpoint. The join action authorizes referencing the AKS-managed kube-apiserver frontend
@@ -232,13 +209,6 @@ resource "azurerm_role_definition" "clickhouse_byoc_provisioner" {
   ]
 }
 
-data "azurerm_role_definition" "byo_iam_assignable" {
-  for_each = local.byo_iam ? local.byo_iam_assignable_roles : {}
-
-  name  = each.value
-  scope = data.azurerm_subscription.current.id
-}
-
 # BYO-IAM only: the provisioner actions that work at resource group scope. Assigned by
 # azure-per-infra-iam on the default and storage resource groups of each infra, so ClickHouse
 # cannot change resources in other resource groups. No resource group write/delete: the customer
@@ -289,9 +259,9 @@ resource "azurerm_role_definition" "clickhouse_byoc_network_user" {
 }
 
 # BYO-IAM only: lets ClickHouse create and delete role assignments. azure-per-infra-iam assigns it
-# on the infra's default resource group with an ABAC condition that allows only the built-in
-# roles in local.byo_iam_assignable_roles, each for its expected principals. Kept separate from
-# the provisioner role so the condition constrains nothing else.
+# on the infra's default resource group with an ABAC condition that allows only a fixed set of
+# built-in roles (local.assignable_role_ids in azure-per-infra-iam), each for its expected
+# principals. Kept separate from the provisioner role so the condition constrains nothing else.
 resource "azurerm_role_definition" "clickhouse_byoc_role_assignment_delegate" {
   count = var.include_iam_write_permissions ? 0 : 1
 
