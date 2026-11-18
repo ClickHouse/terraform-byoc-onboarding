@@ -54,7 +54,6 @@ resource "google_project_iam_custom_role" "clickhouse_vpc_role" {
     "compute.networks.listTagBindings",
     "compute.networks.use",
     "compute.networks.useExternalIp",
-    "compute.networks.updatePolicy",
 
     # Private Service Connect
     "compute.serviceAttachments.get",
@@ -151,7 +150,8 @@ resource "google_project_iam_custom_role" "clickhouse_vpc_write_role" {
     "compute.subnetworks.setPrivateIpGoogleAccess",
     "compute.subnetworks.update",
 
-    # Route
+    # Route (routes.insert also requires networks.updatePolicy on the network)
+    "compute.networks.updatePolicy",
     "compute.routes.create",
     "compute.routes.createTagBinding",
     "compute.routes.delete",
