@@ -43,14 +43,16 @@ The roles that this module binds (`clickhouseDpMgmtRole`, `clickhouseDpMgmtBucke
 | `<spoken>-clickhouse` | ClickHouse server | `roles/storage.objectUser` and `clickhouseBucketReaderRole` (`storage.buckets.get`) on the instance buckets of the infra (name prefix condition). The same two roles, read only, on buckets of each spoken name in `restore_source_spoken_names`. `roles/cloudkms.cryptoKeyDecrypter` on the named collections key. Token creator on `<spoken>-tde-delegate` |
 | `<spoken>-scraper` | ClickHouse scraper | None in your project |
 | `<spoken>-kmf` | Kube metric forwarder (autoscaling) | None in your project |
-| `<spoken>-gke-node` | GKE nodes | `roles/container.defaultNodeServiceAccount` on the project |
+| `<spoken>-gke-node` | GKE nodes | `roles/container.defaultNodeServiceAccount` on the project. `clickhouse-management` has `roles/iam.serviceAccountUser` on this service account |
 | `<spoken>-monitoring` | Thanos and Prometheus | `roles/storage.objectAdmin` on the monitoring bucket of the infra only (bucket name condition) |
-| `<spoken>-dp-mgmt` | ClickHouse data plane management | `clickhouseDpMgmtRole` on the project. `clickhouseDpMgmtBucketRole` on the instance buckets of the infra (name prefix condition). `roles/cloudkms.cryptoKeyEncrypter` on the named collections key. Token creator on `<spoken>-tde-delegate` |
+| `<spoken>-dp-mgmt` | ClickHouse data plane management | `clickhouseDpMgmtRole` on the project. `clickhouseDpMgmtBucketRole` on the instance buckets of the infra (name prefix condition). `roles/cloudkms.cryptoKeyEncrypter` on the named collections key |
 | `<spoken>-tde-delegate` | BYOC+TDE | `roles/cloudkms.cryptoKeyEncrypterDecrypter` and `roles/cloudkms.viewer` on the TDE key of the infra only (key name condition) |
 
 The module also grants:
 
 - `roles/iam.serviceAccountTokenCreator` on `<spoken>-dp-mgmt` to the ClickHouse data plane management identities of `environment`. This is how ClickHouse acts as `<spoken>-dp-mgmt`.
+- `roles/iam.serviceAccountTokenCreator` on `<spoken>-tde-delegate` to those same identities. ClickHouse impersonates the TDE delegate in one hop. `<spoken>-dp-mgmt` has no token creator grant on the delegate. `<spoken>-clickhouse` also has token creator on the delegate, so the server can unwrap keys.
+- `roles/iam.serviceAccountUser` on `<spoken>-gke-node` to `clickhouse-management`. GKE node pools run as this service account. In this mode `modules/gcp` leaves `iam.serviceAccounts.actAs` out of `clickhouseCommonRole`.
 - `roles/container.clusterViewer` on the project to the ClickHouse data plane management and ArgoCD identities. They connect to the GKE control plane over the DNS-based endpoint.
 
 The module has no feature toggles. It always creates all service accounts and grants. A service account that is not used, or a grant on a key that does not exist, gives no access.

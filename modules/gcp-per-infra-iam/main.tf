@@ -35,6 +35,16 @@ resource "google_project_iam_member" "gke_node_default_node_sa" {
   member  = google_service_account.this["gke_node"].member
 }
 
+# clickhouse-management creates the GKE node pools, which run as <spoken>-gke-node.
+# roles/iam.serviceAccountUser is iam.serviceAccounts.actAs on this service account
+# only. modules/gcp leaves that permission out of clickhouseCommonRole when
+# include_iam_write_permissions is false.
+resource "google_service_account_iam_member" "gke_node_service_account_user" {
+  service_account_id = google_service_account.this["gke_node"].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = local.clickhouse_management_member
+}
+
 resource "google_project_iam_member" "dp_mgmt_role" {
   project = var.project_id
   role    = local.dp_mgmt_role
@@ -120,13 +130,14 @@ resource "google_project_iam_member" "monitoring_bucket" {
 # while a key does not exist.
 # ---------------------------------------------------------------------------------------------
 
-# dp-mgmt impersonates the TDE delegate to wrap keys. The ClickHouse server impersonates it to
-# unwrap them.
+# The gke-mgmt identity of each cell in environment impersonates the TDE delegate
+# in one hop. The ClickHouse server impersonates it to unwrap keys. <spoken>-dp-mgmt
+# has no token creator grant on the delegate.
 resource "google_service_account_iam_member" "tde_delegate_token_creator" {
-  for_each = {
-    dp_mgmt    = google_service_account.this["dp_mgmt"].member
-    clickhouse = google_service_account.this["clickhouse"].member
-  }
+  for_each = merge(
+    { for member in local.dp_management_members : member => member },
+    { clickhouse = google_service_account.this["clickhouse"].member },
+  )
 
   service_account_id = google_service_account.this["tde_delegate"].name
   role               = "roles/iam.serviceAccountTokenCreator"
