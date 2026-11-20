@@ -14,7 +14,7 @@ resource "azuread_service_principal" "this" {
   owners = [data.azuread_client_config.current.object_id]
 }
 
-# Assign proper role definitions to the service principle
+# Assign proper role definitions to the service principle (see roles.tf for the BYO-IAM content)
 resource "azurerm_role_assignment" "this" {
   scope              = data.azurerm_subscription.current.id
   role_definition_id = azurerm_role_definition.clickhouse_byoc_provisioner.role_definition_resource_id
