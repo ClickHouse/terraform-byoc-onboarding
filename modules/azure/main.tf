@@ -21,6 +21,17 @@ resource "azurerm_role_assignment" "this" {
   principal_id       = azuread_service_principal.this.object_id
 }
 
+# Let the service principal assign only the roles ClickHouse's BYOC identities need
+resource "azurerm_role_assignment" "role_assignments" {
+  scope              = data.azurerm_subscription.current.id
+  role_definition_id = azurerm_role_definition.clickhouse_byoc_role_assignments.role_definition_resource_id
+  principal_id       = azuread_service_principal.this.object_id
+  principal_type     = "ServicePrincipal"
+  description        = "ClickHouse may assign only the roles its BYOC identities need, and never to itself"
+  condition_version  = "2.0"
+  condition          = local.clickhouse_role_assignment_condition
+}
+
 # Grant Microsoft Graph permissions to the service principal
 resource "azuread_app_role_assignment" "graph_permissions" {
   for_each            = local.graph_permissions
