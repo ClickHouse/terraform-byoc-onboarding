@@ -99,17 +99,17 @@ With `include_iam_write_permissions = false`, the ClickHouse management service 
 - `storage.buckets.setIamPolicy`
 - `cloudkms.cryptoKeys.setIamPolicy` (BYOC+TDE)
 - `compute.subnetworks.setIamPolicy` (when `include_vpc_write_permissions = true`)
+- `iam.serviceAccounts.actAs` in `clickhouseCommonRole`
 
 `clickhouseIamRole` keeps its ID and its binding, with read permissions only. A change of the variable updates the roles in place.
 
-ClickHouse keeps these permissions in both modes:
+ClickHouse keeps `clickhouseWorkloadIdentityBinderRole` in both modes. `gcp-per-infra-iam` grants it on 4 service accounts of each infra, and does not grant it on the project. ClickHouse uses it to add Workload Identity members. A Workload Identity member names a Kubernetes service account in the GKE cluster of the infra, and that cluster does not exist when you apply the module.
 
-- `iam.serviceAccounts.actAs` in `clickhouseCommonRole`. GKE node pools run as the node service account that you create.
-- `clickhouseWorkloadIdentityBinderRole`, which `gcp-per-infra-iam` grants on 4 service accounts of each infra, not on the project. ClickHouse uses it to add Workload Identity members. A Workload Identity member names a Kubernetes service account in the GKE cluster of the infra, and that cluster does not exist when you apply the module.
+GKE node pools run as the node service account of the infra. With the default `include_iam_write_permissions = true`, `iam.serviceAccounts.actAs` stays in `clickhouseCommonRole`. IAM Conditions cannot match service account names, so that permission applies to every service account in the project. Together with `clickhouseClusterRole` (`container.clusters.create` and `container.clusters.update`), this lets ClickHouse run a node pool as any service account in the project. Keep no service accounts in the BYOC project other than ClickHouse's and the per-infra ones, and apply this module from a different project. We also recommend the organization policy `iam.disableServiceAccountKeyCreation` on the project.
+
+When `include_iam_write_permissions` is `false`, `iam.serviceAccounts.actAs` is left out of `clickhouseCommonRole`. The [`gcp-per-infra-iam`](../gcp-per-infra-iam/) module grants `roles/iam.serviceAccountUser` to `clickhouse-management` on the `<spoken>-gke-node` service account only.
 
 This module creates 4 roles only when `include_iam_write_permissions` is `false`: `clickhouseDpMgmtRole`, `clickhouseDpMgmtBucketRole`, `clickhouseBucketReaderRole` and `clickhouseWorkloadIdentityBinderRole`. They grant nothing alone. Only `gcp-per-infra-iam` binds them. If you set `include_iam_write_permissions` back to `true`, Terraform deletes the 4 roles. GCP keeps a deleted custom role for 7 days, during which you can undelete it. After that, GCP schedules permanent deletion (7 to 14 days after the delete request) and then runs a 30-day removal process. You cannot create a new role with the same ID until that process finishes, up to 44 days after the delete request. See [Create and manage custom roles](https://cloud.google.com/iam/docs/creating-custom-roles).
-
-IAM Conditions cannot match service account names. So `iam.serviceAccounts.actAs` applies to all service accounts in the project. Together with `clickhouseClusterRole` (`container.clusters.create` and `container.clusters.update`), this lets ClickHouse run a node pool as any service account in the project. Keep no service accounts in the BYOC project other than ClickHouse's and the per-infra ones, and apply this module from a different project. We also recommend the organization policy `iam.disableServiceAccountKeyCreation` on the project.
 
 ## Inputs
 

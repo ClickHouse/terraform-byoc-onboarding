@@ -2,7 +2,12 @@ resource "google_project_iam_custom_role" "clickhouse_common_role" {
   role_id     = "clickhouseCommonRole"
   title       = "ClickHouse Common Role"
   description = "Role to allow ClickHouse Cloud common operations"
-  permissions = [
+  # iam.serviceAccounts.actAs stays in the default mode, where this role is bound on
+  # the project. IAM Conditions cannot match service account names, so that
+  # permission applies to every service account in the project. When you bring
+  # your own IAM, the permission is omitted here. gcp-per-infra-iam grants
+  # roles/iam.serviceAccountUser on the gke-node service account only.
+  permissions = concat([
     # Regional Operations
     "compute.regions.get",
     "compute.regions.list",
@@ -12,7 +17,6 @@ resource "google_project_iam_custom_role" "clickhouse_common_role" {
     "compute.zones.list",
 
     # General service account operations
-    "iam.serviceAccounts.actAs",
     "iam.serviceAccounts.get",
 
     # Project operations
@@ -20,7 +24,9 @@ resource "google_project_iam_custom_role" "clickhouse_common_role" {
 
     # Service usage for validation checks
     "serviceusage.services.get",
-  ]
+    ],
+    var.include_iam_write_permissions ? ["iam.serviceAccounts.actAs"] : [],
+  )
 }
 
 # Always granted. Covers what ClickHouse needs even in a bring-your-own-VPC
