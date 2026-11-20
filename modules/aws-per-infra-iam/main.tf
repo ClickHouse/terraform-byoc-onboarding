@@ -4,6 +4,7 @@
 
 
 locals {
+  vpc_owner_account_id = coalesce(one(data.aws_vpc.vpc[*].owner_id), data.aws_caller_identity.caller.account_id)
   byoc_account_map = {
     dev        = 851725629656
     staging    = 767397831528
@@ -46,7 +47,17 @@ variable "permissions_boundary" {
   type        = string
   default     = null
 }
+
+variable "vpc_id" {
+  description = "ID of the VPC the BYOC infra is deployed into. Set it when the VPC is owned by another account and shared into this one through AWS RAM, so Karpenter is allowed to launch nodes into its subnets. Leave unset when this account owns the VPC."
+  type        = string
+  default     = null
+}
 data "aws_caller_identity" "caller" {
+}
+data "aws_vpc" "vpc" {
+  id    = var.vpc_id
+  count = (var.vpc_id != null) ? 1 : 0
 }
 data "aws_iam_policy_document" "eks_pod_identity_assume_policy" {
   statement {
@@ -98,7 +109,7 @@ resource "aws_iam_role" "role_k8s_control_plane" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_k8s_control_plane_amazon_eks_cluster_policy" {
@@ -155,7 +166,7 @@ resource "aws_iam_role" "role_k8s_worker" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_k8s_worker_amazon_eks_worker_node_policy" {
@@ -192,7 +203,7 @@ resource "aws_iam_role" "role_load_balancer_controller" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_controller_iam_policy" {
@@ -227,6 +238,9 @@ data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_contro
       "ec2:DescribeTags",
       "ec2:GetCoipPoolUsage",
       "ec2:DescribeCoipPools",
+      "ec2:GetSecurityGroupsForVpc",
+      "ec2:DescribeIpamPools",
+      "ec2:DescribeRouteTables",
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeLoadBalancerAttributes",
       "elasticloadbalancing:DescribeListeners",
@@ -237,7 +251,9 @@ data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_contro
       "elasticloadbalancing:DescribeTargetGroupAttributes",
       "elasticloadbalancing:DescribeTargetHealth",
       "elasticloadbalancing:DescribeTags",
-      "elasticloadbalancing:DescribeTrustStores"
+      "elasticloadbalancing:DescribeTrustStores",
+      "elasticloadbalancing:DescribeListenerAttributes",
+      "elasticloadbalancing:DescribeCapacityReservation"
     ]
     effect = "Allow"
     resources = [
@@ -323,10 +339,16 @@ data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_contro
     condition {
       test = "Null"
       values = [
-        "true",
-        "false"
+        "true"
       ]
       variable = "aws:RequestTag/elbv2.k8s.aws/cluster"
+    }
+    condition {
+      test = "Null"
+      values = [
+        "false"
+      ]
+      variable = "aws:ResourceTag/elbv2.k8s.aws/cluster"
     }
   }
   statement {
@@ -390,10 +412,16 @@ data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_contro
     condition {
       test = "Null"
       values = [
-        "true",
-        "false"
+        "true"
       ]
       variable = "aws:RequestTag/elbv2.k8s.aws/cluster"
+    }
+    condition {
+      test = "Null"
+      values = [
+        "false"
+      ]
+      variable = "aws:ResourceTag/elbv2.k8s.aws/cluster"
     }
   }
   statement {
@@ -418,7 +446,10 @@ data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_contro
       "elasticloadbalancing:DeleteLoadBalancer",
       "elasticloadbalancing:ModifyTargetGroup",
       "elasticloadbalancing:ModifyTargetGroupAttributes",
-      "elasticloadbalancing:DeleteTargetGroup"
+      "elasticloadbalancing:DeleteTargetGroup",
+      "elasticloadbalancing:ModifyListenerAttributes",
+      "elasticloadbalancing:ModifyCapacityReservation",
+      "elasticloadbalancing:ModifyIpPools"
     ]
     effect = "Allow"
     resources = [
@@ -474,7 +505,8 @@ data "aws_iam_policy_document" "inline_policy_load_balancer_controller_lb_contro
       "elasticloadbalancing:ModifyListener",
       "elasticloadbalancing:AddListenerCertificates",
       "elasticloadbalancing:RemoveListenerCertificates",
-      "elasticloadbalancing:ModifyRule"
+      "elasticloadbalancing:ModifyRule",
+      "elasticloadbalancing:SetRulePriorities"
     ]
     effect = "Allow"
     resources = [
@@ -493,7 +525,7 @@ resource "aws_iam_role" "role_ebs_csi_driver" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "inline_policy_ebs_csi_driver_ebscsi_driver_policy" {
@@ -759,7 +791,7 @@ resource "aws_iam_role" "role_cluster_autoscaler" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "inline_policy_cluster_autoscaler_eks_autoscaler_policy" {
@@ -789,10 +821,16 @@ resource "aws_iam_role_policy" "role_policy_cluster_autoscaler_eks_autoscaler_po
 resource "aws_iam_role" "role_karpenter_controller" {
   assume_role_policy   = data.aws_iam_policy_document.eks_pod_identity_assume_policy.json
   name                 = "${var.spoken_name}-${var.region}-karpenter-controller"
+  path                 = "/clickhouse/"
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
+  }
+  lifecycle {
+    ignore_changes = [
+      "path",
+    ]
   }
 }
 data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_controller_policy" {
@@ -807,7 +845,7 @@ data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_con
       "arn:aws:ec2:${var.region}::snapshot/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:spot-instances-request/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:security-group/*",
-      "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:subnet/*",
+      "arn:aws:ec2:${var.region}:${local.vpc_owner_account_id}:subnet/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:capacity-reservation/*",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.caller.account_id}:placement-group/*"
     ]
@@ -855,10 +893,16 @@ data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_con
     condition {
       test = "StringEquals"
       values = [
-        "owned",
-        "clickhouse-cloud-${var.spoken_name}"
+        "owned"
       ]
       variable = "aws:RequestTag/kubernetes.io/cluster/clickhouse-cloud-${var.spoken_name}"
+    }
+    condition {
+      test = "StringEquals"
+      values = [
+        "clickhouse-cloud-${var.spoken_name}"
+      ]
+      variable = "aws:RequestTag/eks:eks-cluster-name"
     }
     condition {
       test = "StringLike"
@@ -884,10 +928,16 @@ data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_con
     condition {
       test = "StringEquals"
       values = [
-        "owned",
-        "clickhouse-cloud-${var.spoken_name}"
+        "owned"
       ]
       variable = "aws:RequestTag/kubernetes.io/cluster/clickhouse-cloud-${var.spoken_name}"
+    }
+    condition {
+      test = "StringEquals"
+      values = [
+        "clickhouse-cloud-${var.spoken_name}"
+      ]
+      variable = "aws:RequestTag/eks:eks-cluster-name"
     }
     condition {
       test = "StringLike"
@@ -1008,11 +1058,23 @@ data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_con
     condition {
       test = "StringEquals"
       values = [
-        "owned",
-        "clickhouse-cloud-${var.spoken_name}",
-        "${var.region}"
+        "owned"
       ]
       variable = "aws:RequestTag/kubernetes.io/cluster/clickhouse-cloud-${var.spoken_name}"
+    }
+    condition {
+      test = "StringEquals"
+      values = [
+        "clickhouse-cloud-${var.spoken_name}"
+      ]
+      variable = "aws:RequestTag/eks:eks-cluster-name"
+    }
+    condition {
+      test = "StringEquals"
+      values = [
+        "${var.region}"
+      ]
+      variable = "aws:RequestTag/topology.kubernetes.io/region"
     }
     condition {
       test = "StringLike"
@@ -1033,20 +1095,44 @@ data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_con
     condition {
       test = "StringEquals"
       values = [
-        "owned",
-        "${var.region}",
-        "owned",
-        "clickhouse-cloud-${var.spoken_name}"
+        "owned"
       ]
       variable = "aws:ResourceTag/kubernetes.io/cluster/clickhouse-cloud-${var.spoken_name}"
     }
     condition {
+      test = "StringEquals"
+      values = [
+        "${var.region}"
+      ]
+      variable = "aws:ResourceTag/topology.kubernetes.io/region"
+    }
+    condition {
+      test = "StringEquals"
+      values = [
+        "owned"
+      ]
+      variable = "aws:RequestTag/kubernetes.io/cluster/clickhouse-cloud-${var.spoken_name}"
+    }
+    condition {
+      test = "StringEquals"
+      values = [
+        "clickhouse-cloud-${var.spoken_name}"
+      ]
+      variable = "aws:RequestTag/eks:eks-cluster-name"
+    }
+    condition {
       test = "StringLike"
       values = [
-        "*",
         "*"
       ]
       variable = "aws:ResourceTag/karpenter.k8s.aws/ec2nodeclass"
+    }
+    condition {
+      test = "StringLike"
+      values = [
+        "*"
+      ]
+      variable = "aws:RequestTag/karpenter.k8s.aws/ec2nodeclass"
     }
   }
   statement {
@@ -1062,10 +1148,16 @@ data "aws_iam_policy_document" "inline_policy_karpenter_controller_karpenter_con
     condition {
       test = "StringEquals"
       values = [
-        "owned",
-        "${var.region}"
+        "owned"
       ]
       variable = "aws:ResourceTag/kubernetes.io/cluster/clickhouse-cloud-${var.spoken_name}"
+    }
+    condition {
+      test = "StringEquals"
+      values = [
+        "${var.region}"
+      ]
+      variable = "aws:ResourceTag/topology.kubernetes.io/region"
     }
     condition {
       test = "StringLike"
@@ -1170,7 +1262,7 @@ resource "aws_iam_role" "role_karpenter_node" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 resource "aws_iam_instance_profile" "instance_profile_karpenter_node" {
@@ -1178,7 +1270,7 @@ resource "aws_iam_instance_profile" "instance_profile_karpenter_node" {
   role = aws_iam_role.role_karpenter_node.name
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 resource "aws_iam_role_policy_attachment" "managed_policy_karpenter_node_amazon_eks_worker_node_policy" {
@@ -1219,7 +1311,7 @@ resource "aws_iam_role" "role_state_exporter" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "inline_policy_state_exporter_state_exporter_policy" {
@@ -1245,7 +1337,7 @@ resource "aws_iam_role" "role_thanos" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "inline_policy_thanos_thanos_policy" {
@@ -1275,7 +1367,7 @@ resource "aws_iam_role" "role_clickhouse_scraper" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "inline_policy_clickhouse_scraper_scraper_billing_bucket_assume_role_policy" {
@@ -1298,10 +1390,16 @@ resource "aws_iam_role_policy" "role_policy_clickhouse_scraper_scraper_billing_b
 resource "aws_iam_role" "role_kube_metric_forwarder_asc" {
   assume_role_policy   = data.aws_iam_policy_document.eks_pod_identity_assume_policy.json
   name                 = "${var.spoken_name}-${var.region}-kube-metric-forwarder-asc"
+  path                 = "/clickhouse/"
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
+  }
+  lifecycle {
+    ignore_changes = [
+      "path",
+    ]
   }
 }
 data "aws_iam_policy_document" "inline_policy_kube_metric_forwarder_asc_kube_metric_forwarder_autoscale_bucket_assume_role_policy" {
@@ -1327,7 +1425,7 @@ resource "aws_iam_role" "role_clickhouse_s3_access" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "billing_bucket_assume_role_policy" {
@@ -1342,6 +1440,31 @@ data "aws_iam_policy_document" "billing_bucket_assume_role_policy" {
       "arn:aws:iam::*:role/ClickHouseAccessRole-*"
     ]
     sid = "AllowAssumeroleRemote"
+  }
+  statement {
+    actions = [
+      "sts:AssumeRole",
+      "sts:TagSession"
+    ]
+    effect = "Allow"
+    resources = [
+      "arn:aws:iam::*:role/*"
+    ]
+    sid = "AssumeRoleInOtherAccounts"
+    condition {
+      test = "StringNotEquals"
+      values = [
+        "$${aws:PrincipalAccount}"
+      ]
+      variable = "aws:ResourceAccount"
+    }
+    condition {
+      test = "Null"
+      values = [
+        "false"
+      ]
+      variable = "aws:ResourceAccount"
+    }
   }
 }
 resource "aws_iam_role_policy" "role_policy_clickhouse_s3_access_billing_bucket_assume_role" {
@@ -1431,7 +1554,7 @@ resource "aws_iam_role" "role_data_plane_management" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
 }
 data "aws_iam_policy_document" "data_plane_management_policy" {
@@ -1534,6 +1657,13 @@ data "aws_iam_policy_document" "tde_delegate_assume_role_policy" {
     ]
     effect = "Allow"
     sid    = "ByocTDESharedPodRole"
+    condition {
+      test = "StringEquals"
+      values = [
+        "${var.external_id}"
+      ]
+      variable = "sts:ExternalId"
+    }
     principals {
       identifiers = [
         "arn:aws:iam::${data.aws_caller_identity.caller.account_id}:role/${var.spoken_name}-${var.region}-CH-S3-Role"
@@ -1548,7 +1678,7 @@ resource "aws_iam_role" "role_tde_delegate" {
   permissions_boundary = var.permissions_boundary
   tags = {
     clickhouse-byoc = "true"
-    version         = "2.1.48-ffb5c32"
+    version         = "2.1.54-1dd7839"
   }
   depends_on = [
     "aws_iam_role.role_data_plane_management",

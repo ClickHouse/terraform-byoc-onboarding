@@ -51,6 +51,7 @@ recommended source.
 | `region`      | The AWS region to deploy the BYOC infra into.                      | `string` | n/a     |   yes    |
 | `external_id` | Unique identifier for role assumption, provided by ClickHouse.     | `string` | n/a     |   yes    |
 | `permissions_boundary` | ARN of an IAM policy to attach as the permissions boundary of every role this module creates. Set this if your organization mandates boundaries on every role. See the warning below. | `string` | `null` (no boundary) | no |
+| `vpc_id` | ID of the VPC the BYOC infra is deployed into. Required when the VPC is owned by another account and shared into this one through AWS RAM. See below. | `string` | `null` (this account owns the VPC) | no |
 
 > `byoc_env` exists for internal ClickHouse use only. Leave it at its default
 > (`production`). See the note above.
@@ -72,6 +73,15 @@ resources in AWS. AWS also does not accept a boundary on
 `iam:CreateServiceLinkedRole`, which ClickHouse Cloud calls for `eks`,
 `eks-nodegroup` and `vpc-lattice`; an organization policy requiring a boundary
 on every `iam:Create*` call needs a carve-out for those.
+
+## Shared VPC (AWS RAM)
+
+When the VPC is owned by another account (for example a network hub) and its
+subnets are shared into this account through AWS RAM, set `vpc_id`. The subnets
+of a shared VPC belong to the VPC owner, and IAM matches the owner's account ID
+in subnet ARNs; the module looks the owner up from `vpc_id` so that Karpenter is
+allowed to launch nodes into those subnets. Without it, Karpenter cannot launch
+any nodes and ClickHouse services stay pending.
 
 ## Outputs
 
