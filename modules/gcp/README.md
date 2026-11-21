@@ -69,7 +69,7 @@ Because a GKE cluster on a Shared VPC has its network in the host project, GKE a
 
 ### Object access is limited to ClickHouse monitoring buckets
 
-ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.objects.delete` only to empty the ClickHouse-managed monitoring bucket before deleting it during infra teardown. These permissions are in `clickhouseStorageObjectsRole`, bound with an IAM Condition that matches only buckets whose name ends in `_gcp_clickhouse_cloud-monitoring` (ClickHouse names each infra's monitoring bucket `<infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring`) and the objects inside them. ClickHouse has no object access to any other bucket in the project, and nothing needs updating when infras are added or removed.
+ClickHouse needs `storage.objects.list` and `storage.objects.delete` only to empty the ClickHouse-managed monitoring bucket before deleting it during infra teardown. These permissions are in `clickhouseStorageObjectsRole`, bound with an IAM Condition that matches only buckets whose name ends in `_gcp_clickhouse_cloud-monitoring` (ClickHouse names each infra's monitoring bucket `<infra-name>_<region-short>_gcp_clickhouse_cloud-monitoring`) and the objects inside them. ClickHouse has no object access to any other bucket in the project, and nothing needs updating when infras are added or removed.
 
 ## Inputs
 
@@ -111,7 +111,7 @@ ClickHouse needs `storage.objects.list`, `storage.objects.get` and `storage.obje
 | google_project_iam_custom_role.clickhouse_vpc_write_role | Role to allow ClickHouse Cloud to create/delete/modify the VPC network topology (networks, routes, Cloud Routers, subnets); created only when `include_vpc_write_permissions` is true |
 | google_project_iam_custom_role.clickhouse_cluster_role | Role to allow ClickHouse Cloud to manage cluster resources in your project |
 | google_project_iam_custom_role.clickhouse_storage_role | Role to allow ClickHouse Cloud to manage Object Storage buckets in your project; holds no object-level permissions |
-| google_project_iam_custom_role.clickhouse_storage_objects_role | Role holding `storage.objects.list/get/delete`, used only to empty ClickHouse monitoring buckets during infra teardown |
+| google_project_iam_custom_role.clickhouse_storage_objects_role | Role holding `storage.objects.list/delete` (no object reads), used only to empty ClickHouse monitoring buckets during infra teardown |
 | google_project_iam_custom_role.clickhouse_iam_role | Role to allow ClickHouse Cloud to manage IAM resources in your project |
 | google_project_iam_custom_role.clickhouse_tde_role | Role to allow ClickHouse Cloud to manage the BYOC+TDE key ring, default KEK and key IAM bindings (no destroy permissions); created only when `include_tde_permissions` is true |
 | google_project_iam_member.clickhouse_sa_roles["common_role"] | Grants `clickhouseCommonRole` to ClickHouse Management Service Account |

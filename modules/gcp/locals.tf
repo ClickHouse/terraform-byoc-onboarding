@@ -19,10 +19,10 @@ locals {
   # bucket deletion runs with force_destroy=true, which must first list and
   # delete the objects inside (e.g. the monitoring bucket's Thanos TSDB
   # blocks) before removing the bucket. Without these, bucket delete 403s and
-  # the infra is stuck terminating (BYOC-768).
+  # the infra is stuck terminating (BYOC-768). force_destroy never reads objects,
+  # so storage.objects.get is deliberately not granted.
   clickhouse_storage_object_permissions = [
     "storage.objects.list",
-    "storage.objects.get",
     "storage.objects.delete",
   ]
 
