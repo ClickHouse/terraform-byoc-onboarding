@@ -10,7 +10,7 @@ variable "organization_id" {
 
 variable "project_id" {
   type        = string
-  description = "(Required) The ID of the GCP project where ClickHouse BYOC runs. The constraints allow only Workload Identity members of this project."
+  description = "(Required) The ID of the GCP project where ClickHouse BYOC runs. The Workload Identity rule allows only members of this project's pool. The token rule names the ClickHouse service accounts of this project."
 }
 
 variable "project_number" {
@@ -25,7 +25,7 @@ variable "project_number" {
 
 variable "policy_parent" {
   type        = string
-  description = "(Required) The resource where the organization policies are set: `projects/PROJECT_ID`, `projects/PROJECT_NUMBER`, or `folders/FOLDER_ID`. Use the BYOC project. The rules name the Workload Identity pool of `project_id` only, so a folder applies them to every project in it: use a folder only when it holds only this BYOC project."
+  description = "(Required) The resource where the organization policies are set: `projects/PROJECT_ID`, `projects/PROJECT_NUMBER`, or `folders/FOLDER_ID`. Use the BYOC project. The rules name identities of `project_id` only, so a folder applies them to every project in it: use a folder only when it holds only this BYOC project."
 
   validation {
     condition     = can(regex("^(projects/[a-z0-9-]+|folders/[0-9]+)$", var.policy_parent))

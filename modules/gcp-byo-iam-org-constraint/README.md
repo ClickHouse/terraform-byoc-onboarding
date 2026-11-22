@@ -9,11 +9,12 @@ ClickHouse does not apply this module, and ClickHouse does not get organization 
 ## What the module creates
 
 - A custom constraint at your organization, on `iam.googleapis.com/AllowPolicy`. Members of `roles/iam.workloadIdentityUser` must start with `serviceAccount:PROJECT_ID.svc.id.goog[` or `principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/PROJECT_ID.svc.id.goog/subject/ns/`. Other roles are not restricted by this constraint.
-- An organization policy for that constraint on `policy_parent` (a project or a folder). The dry-run spec is always on. The live spec is on only when `live_enforce = true`.
+- A custom constraint that denies `roles/iam.serviceAccountTokenCreator` and `roles/iam.serviceAccountOpenIdTokenCreator` to the ClickHouse service accounts `*-dp-mgmt` and `clickhouse-management` of the project. See "Token role rule."
+- An organization policy for each custom constraint on `policy_parent` (a project or a folder). The dry-run spec is always on. The live spec is on only when `live_enforce = true`. Terraform writes these policies one after another.
 - Optional, `enable_storage_member_rule`: two more constraints and policies for Cloud Storage roles. See "Storage member rule (unverified)."
 - Optional, `enforce_public_access_prevention`: a policy that enforces the managed `storage.publicAccessPrevention` constraint on `policy_parent`.
 
-Constraint names contain the project number, so you can apply the module once for each BYOC project in the same organization. The rules name the Workload Identity pool of one project. Set `policy_parent` to that project. If you use a folder, the rules apply to every project in the folder, so use a folder only when it holds only that BYOC project.
+Constraint names contain the project number, so you can apply the module once for each BYOC project in the same organization. The rules name identities of one project. Set `policy_parent` to that project. If you use a folder, the rules apply to every project in the folder, so use a folder only when it holds only that BYOC project.
 
 ## Requirements
 
@@ -75,6 +76,15 @@ The dry-run spec stays on after you enforce.
 
 A person who can set organization policies on the project can also turn the policy off there. Give `roles/orgpolicy.policyAdmin` only to people you trust. Do not give it to ClickHouse identities.
 
+## Token role rule
+
+The module always creates a second constraint for `roles/iam.serviceAccountTokenCreator` and `roles/iam.serviceAccountOpenIdTokenCreator`. These roles also let a member mint tokens for a service account. The rule denies these roles to the two ClickHouse identities that can change service account allow policies:
+
+- Every `SPOKEN-dp-mgmt` service account of the project (member ends with `-dp-mgmt@PROJECT_ID.iam.gserviceaccount.com`).
+- `clickhouse-management@PROJECT_ID.iam.gserviceaccount.com`.
+
+The rule does not limit other members. Grants to your own principals stay your responsibility. The rule needs no change when you add an infra to the project.
+
 ## Options
 
 ### Namespace prefix
@@ -105,7 +115,6 @@ Read this before you set it:
 
 - The constraints check only the roles and members that a change adds or removes. Default grants by Cloud Storage and roles that Google Cloud grants by default are not affected.
 - The Workload Identity pool is for the project. All GKE clusters in the project share it, and IAM treats the same namespace and Kubernetes service account in two clusters as the same identity.
-- The condition uses `!` (not). The Google Cloud page lists `&&` and `||` and does not show `!`. Use dry-run to make sure that the API accepts the condition.
 
 ## References
 
@@ -136,7 +145,7 @@ Read this before you set it:
 
 | Name | Description |
 |------|-------------|
-| custom_constraint_names | The custom constraint names, by key |
-| policy_names | The organization policy names on `policy_parent`, by key |
+| custom_constraint_names | The custom constraint names, by key: `wi` and `token`, and `storage` and `storage_admin` when the storage rule is on |
+| policy_names | The organization policy names on `policy_parent`, by the same keys |
 | live_enforced | Whether the custom constraints are enforced live |
 | public_access_prevention_enforced | Whether `storage.publicAccessPrevention` is enforced |

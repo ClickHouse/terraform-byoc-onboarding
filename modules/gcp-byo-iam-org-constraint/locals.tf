@@ -13,11 +13,21 @@ locals {
   wi_constraint_name      = "custom.clickhouseByocWiMembers${var.project_number}"
   storage_constraint_name = "custom.clickhouseByocStorageMembers${var.project_number}"
   storage_admin_name      = "custom.clickhouseByocStorageAdmin${var.project_number}"
+  token_constraint_name   = "custom.clickhouseByocTokenMembers${var.project_number}"
 
   # Supported CEL functions: https://docs.cloud.google.com/iam/docs/org-policy-custom-constraints
-  # UNVERIFIED: that page shows && and ||, and does not show !. Confirm that the API accepts
-  # !RoleNameMatches(...) before you enforce.
   wi_condition = "resource.bindings.all(binding, !RoleNameMatches(binding.role, ['roles/iam.workloadIdentityUser']) || binding.members.all(member, MemberSubjectStartsWith(member, ['${local.wi_member_legacy}', '${local.wi_member_new}'])))"
+
+  # Token roles also let a member mint tokens for a service account. Without this rule, a
+  # ClickHouse identity with setIamPolicy on a service account (the binder) can grant itself one
+  # of these roles. The rule denies these roles to the two ClickHouse identities that hold the
+  # binder: every <spoken>-dp-mgmt of the project, and clickhouse-management. Other members are
+  # the responsibility of the customer.
+  # https://docs.cloud.google.com/iam/docs/roles-permissions/iam
+  token_roles            = ["roles/iam.serviceAccountTokenCreator", "roles/iam.serviceAccountOpenIdTokenCreator"]
+  dp_mgmt_member_suffix  = "-dp-mgmt@${var.project_id}.iam.gserviceaccount.com"
+  clickhouse_mgmt_member = "serviceAccount:clickhouse-management@${var.project_id}.iam.gserviceaccount.com"
+  token_condition        = "resource.bindings.all(binding, !RoleNameMatches(binding.role, [${join(", ", formatlist("'%s'", local.token_roles))}]) || binding.members.all(member, !MemberSubjectEndsWith(member, ['${local.dp_mgmt_member_suffix}']) && !MemberSubjectMatches(member, ['${local.clickhouse_mgmt_member}'])))"
 
   storage_role_match = length(var.storage_custom_roles) == 0 ? "RoleNameStartsWith(binding.role, ['roles/storage.'])" : "(RoleNameStartsWith(binding.role, ['roles/storage.']) || RoleNameMatches(binding.role, [${join(", ", formatlist("'%s'", var.storage_custom_roles))}]))"
 
@@ -36,6 +46,12 @@ locals {
         display_name = "ClickHouse BYOC: Workload Identity members only"
         description  = "roles/iam.workloadIdentityUser members must be Kubernetes service accounts of the Workload Identity pool of project ${var.project_id}. Service account emails, users, groups, and principalSet identifiers are denied on that role."
         condition    = local.wi_condition
+      }
+      token = {
+        name         = local.token_constraint_name
+        display_name = "ClickHouse BYOC: no token roles for ClickHouse binders"
+        description  = "roles/iam.serviceAccountTokenCreator and roles/iam.serviceAccountOpenIdTokenCreator are denied to the ClickHouse service accounts *-dp-mgmt and clickhouse-management of project ${var.project_id}."
+        condition    = local.token_condition
       }
     },
     var.enable_storage_member_rule ? {
