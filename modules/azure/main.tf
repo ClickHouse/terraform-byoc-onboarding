@@ -12,12 +12,6 @@ resource "azuread_service_principal" "this" {
   client_id = local.clickhouse_byoc_app_registration_map[var.environment]
   # it's recommended to always set owner of service principal (using current user here)
   owners = [data.azuread_client_config.current.object_id]
-
-  # TEST ONLY (Azure maintenance mode test, 2026-11-24): stop the owners drift of the shared dev
-  # test SP. DO NOT COMMIT. Remove in Phase 7.
-  lifecycle {
-    ignore_changes = [owners]
-  }
 }
 
 # Assign proper role definitions to the service principle (see roles.tf for the BYO-IAM content)
