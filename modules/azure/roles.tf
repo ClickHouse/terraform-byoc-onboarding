@@ -5,6 +5,17 @@ locals {
   # allow at resource group scope stay on the subscription, in the subscription provisioner role.
   byo_iam = !var.include_iam_write_permissions
 
+  # Maintenance mode: every infra of the subscription is provisioned, and maintenance.tf grants
+  # ClickHouse narrow roles on the existing resources of each infra in var.maintenance_infras.
+  # The provisioner role keeps only the subscription-level read that the Crossplane
+  # ResourceProviderRegistration resources observe. The role assignment itself is kept, so the
+  # switch is an in-place update of the role definition and the provisioning permissions come
+  # back with one apply.
+  provisioning = !var.maintenance_mode
+  maintenance_subscription_actions = [
+    "Microsoft.Resources/subscriptions/providers/read",
+  ]
+
   # Subscription-level operations: a resource group scope cannot grant them.
   resource_provider_registration_actions = [
     "Microsoft.Network/register/action",
@@ -185,7 +196,7 @@ resource "azurerm_role_definition" "clickhouse_byoc_provisioner" {
   description = "Least-privilege custom role for ClickHouse to provision Azure BYOC infrastructure resources"
 
   permissions {
-    actions = concat(
+    actions = local.provisioning ? concat(
       local.resource_provider_registration_actions,
       local.byo_iam ? [] : concat(
         local.resource_group_actions,
@@ -197,16 +208,27 @@ resource "azurerm_role_definition" "clickhouse_byoc_provisioner" {
       local.node_resource_group_actions,
       var.include_tde_permissions ? local.tde_keyvault_subscription_actions : [],
       var.include_tde_permissions && !local.byo_iam ? local.tde_keyvault_actions : [],
-    )
+    ) : local.maintenance_subscription_actions
 
     not_actions = []
 
-    data_actions = var.include_tde_permissions && !local.byo_iam ? local.tde_keyvault_data_actions : []
+    data_actions = local.provisioning && var.include_tde_permissions && !local.byo_iam ? local.tde_keyvault_data_actions : []
   }
 
   assignable_scopes = [
     "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
   ]
+
+  lifecycle {
+    precondition {
+      condition     = local.provisioning || length(var.maintenance_infras) > 0
+      error_message = "maintenance_mode = true requires the spoken names of every infra of the subscription in maintenance_infras."
+    }
+    precondition {
+      condition     = local.provisioning || (var.include_iam_write_permissions && var.include_vpc_write_permissions)
+      error_message = "maintenance_mode is not supported yet with include_iam_write_permissions = false (BYO-IAM) or include_vpc_write_permissions = false (BYO-VPC)."
+    }
+  }
 }
 
 # BYO-IAM only: the provisioner actions that work at resource group scope. Assigned by
