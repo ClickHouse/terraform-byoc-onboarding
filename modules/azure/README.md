@@ -68,7 +68,79 @@ Replace `<version>` with the latest tag from the module's
 | environment | (Optional) Environment. Default is `production`. The other values are reserved for internal use" | string | production | no |
 | include_vpc_write_permissions | (Optional) Whether to let ClickHouse create and delete the virtual network, its subnets and the NAT egress path (public IPs and NAT gateways). Set to `false` when you bring your own virtual network (BYO-VPC); ClickHouse then only reads it and joins its subnets | bool | `true` | no |
 | include_iam_write_permissions | (Optional) Whether to let ClickHouse create and delete the per-infra managed identities, custom role definitions and role assignments. Set to `false` when you bring your own IAM (BYO-IAM). See [Bring your own IAM](#bring-your-own-iam-byo-iam) | bool | `true` | no |
+| maintenance_mode | (Optional) Set to `true` after ClickHouse has provisioned every infra in `maintenance_infras`. ClickHouse then gets only a minimal set of roles on the resources of each infra. See [Maintenance mode](#maintenance-mode) | bool | `false` | no |
+| maintenance_infras | (Optional) The spoken names of every BYOC infra in this subscription, provided by ClickHouse. Required with `maintenance_mode = true` | list(string) | `[]` | no |
 | include_tde_permissions | (Optional) Whether to let ClickHouse provision the BYOC+TDE shared resources in this subscription: one TDE delegate managed identity and one default Key Vault + RSA key (KEK) per infra. Grants no vault/key delete or purge and no cryptographic use of the keys — ClickHouse can never destroy or use your key material with this role. Set to `true` before enabling TDE for an infra | bool | `false` | no |
+
+## Maintenance mode
+
+ClickHouse needs the full permissions of this module only to create or delete an infra, or to enable a feature on it. After that, you can limit the permissions to a minimal set to operate the infras:
+
+1. Apply this module with the default settings.
+2. Tell ClickHouse to create the infra. Wait until the infra is ready.
+3. Set `maintenance_mode = true`. Set `maintenance_infras` to the spoken names of all infras in the subscription. Apply.
+
+```hcl
+module "clickhouse_onboarding" {
+  source = "github.com/ClickHouse/terraform-byoc-onboarding.git//modules/azure?ref=<version>"
+
+  maintenance_mode   = true
+  maintenance_infras = ["<spoken-name-provided-by-clickhouse>"]
+}
+```
+
+> [!IMPORTANT]
+> Add every infra of the subscription to `maintenance_infras`. An infra that is not in the list has no permissions, and ClickHouse cannot operate it.
+
+In maintenance mode, ClickHouse can do these operations:
+
+- Update and upgrade the AKS cluster and its node pools, with AKS admin access.
+- Add new ClickHouse services to an infra.
+- Enable customer private link on an infra.
+- Make the AKS API server of an infra private.
+
+Private link and a private API server need the `pl` and `apiserver` subnets in the virtual network of the infra. Infras created since 2026-09-25 have both subnets. For an older infra, ClickHouse must add a subnet first, and maintenance mode does not allow that.
+
+> [!IMPORTANT]
+> Set `maintenance_mode = false` before you do one of these operations. Keep it until ClickHouse completes the operation:
+>
+> - Create a new infra in the subscription.
+> - Delete an infra.
+> - Enable TDE, autoscaling or named collections on an infra.
+> - Add a subnet to an infra, for example the `pl` or `apiserver` subnet of an older infra.
+>
+> If you do not, the operation stops with authorization errors.
+
+The plan fails if the AKS cluster, the NSG or the virtual network of an infra does not exist. Maintenance mode is not available yet with `include_iam_write_permissions = false` or `include_vpc_write_permissions = false`.
+
+In maintenance mode, the ClickHouse BYOC Provisioner role on the subscription keeps only `Microsoft.Resources/subscriptions/providers/read`. The role assignment stays, so 1 apply with `maintenance_mode = false` adds the full permissions again.
+
+The module assigns these roles to the ClickHouse service principal for each infra. Each role is assigned on the resources in the Scope column only. A role on a resource also applies to its child resources, for example the subnets of a virtual network or the containers of a storage account.
+
+| Role | Scope | Actions |
+|------|-------|---------|
+| ClickHouse BYOC Maintenance Resource Group | `clickhouse-cloud-<spoken_name>-default` and `clickhouse-cloud-<spoken_name>-storage` | Read the resource group, role definitions and role assignments |
+| ClickHouse BYOC Maintenance AKS | The AKS cluster `clickhouse-cloud-<spoken_name>` | Read and update the cluster (Kubernetes version upgrades), reset its service principal secret, get the cluster credentials, and read, create, update and delete node pools. No cluster delete |
+| ClickHouse BYOC Maintenance NSG | The NSG `<spoken_name>-nsg` | Read and update the NSG, and read, create, update and delete its security rules |
+| ClickHouse BYOC Maintenance Virtual Network | The virtual network `<spoken_name>` | Read the virtual network and its subnets, and join the existing subnets. No virtual network or subnet write |
+| ClickHouse BYOC Maintenance Network Reader | Each NAT gateway and public IP address `<spoken_name>-<zone>` | Read |
+| ClickHouse BYOC Maintenance Storage Account | Each storage account of the infra in `clickhouse-cloud-<spoken_name>-storage` | Read the account, get its keys, and read, create and update containers. No storage account or container delete |
+| ClickHouse BYOC Maintenance Identity | Each managed identity `<spoken_name>-*` | Read the identity and its federated identity credentials |
+| ClickHouse BYOC Maintenance Key Vault | Each key vault `<spoken_name>-*` | Read the vault and the key metadata. No cryptographic use of the keys |
+| ClickHouse BYOC Maintenance Private Link Service | `clickhouse-cloud-<spoken_name>-default` | Read, create and update Private Link Services, for the private API server. The Private Link Service does not exist before ClickHouse makes the API server private, so this role is on the resource group. No delete |
+| ClickHouse BYOC Maintenance Load Balancer Join | The `kube-apiserver` load balancer in `MC_<spoken_name>_<region>`, if it exists | Put a Private Link Service in front of the load balancer |
+
+The module finds the NAT gateways, public IP addresses, identities, key vaults and storage accounts on each apply. If ClickHouse adds one of these resources while maintenance mode is off, the next apply with `maintenance_mode = true` assigns its role.
+
+In maintenance mode, ClickHouse cannot do these operations:
+
+- Create, change or delete resource groups, virtual networks, subnets, NAT gateways, public IP addresses, storage accounts, key vaults or AKS clusters.
+- Delete any resource, except node pools and NSG rules.
+- Create, change or delete managed identities, federated identity credentials, role definitions or role assignments. So ClickHouse cannot grant a role to any principal.
+- Register resource providers.
+- Use the keys in the key vaults for cryptographic operations.
+
+Maintenance mode does not change the roles of the infra identities (for example `<spoken_name>-data-plane-mgmt`), which ClickHouse assigned during provisioning. It also does not change the Microsoft Graph permission `Application.ReadWrite.OwnedBy`.
 
 ## Bring your own IAM (BYO-IAM)
 
@@ -134,7 +206,7 @@ The Microsoft Graph permission `Application.ReadWrite.OwnedBy` stays in both mod
 | tenant_id | The Azure AD tenant ID |
 | subscription_id | The Azure subscription ID |
 | service_principal_client_id | The application (client) ID of the service principal |
-| byo_iam | BYO-IAM only. The service principal object ID, the role definition IDs and the ABAC condition. Set the `onboarding` input of each `azure-per-infra-iam` module to this value. `null` when `include_iam_write_permissions = true` |
+| byo_iam | BYO-IAM only. The service principal object ID and the IDs of the ClickHouse BYOC role definitions. Set the `onboarding` input of each `azure-per-infra-iam` module to this value. `null` when `include_iam_write_permissions = true` |
 
 ## Resources
 
@@ -146,6 +218,8 @@ The Microsoft Graph permission `Application.ReadWrite.OwnedBy` stays in both mod
 | azuread_app_role_assignment.graph_permissions["Application.ReadWrite.OwnedBy"] | Grants Application.ReadWrite.OwnedBy Microsoft Graph permission |
 | azurerm_role_definition.clickhouse_byoc_role_assignment_delegate | BYO-IAM only. Custom role with the role assignment actions. Assigned by `azure-per-infra-iam` |
 | azurerm_role_definition.clickhouse_byoc_resource_group_provisioner | BYO-IAM only. Custom role with the provisioner actions that work at resource group scope. Assigned by `azure-per-infra-iam` on the infra resource groups |
+| azurerm_role_definition.clickhouse_byoc_maintenance | Maintenance mode only. 1 custom role for each type of infra resource, with the minimal actions to operate a provisioned infra |
+| azurerm_role_assignment.clickhouse_byoc_maintenance | Maintenance mode only. Assigns the maintenance roles on the resource groups and resources of each infra in `maintenance_infras` |
 | azurerm_role_definition.clickhouse_byoc_network_user | BYO-IAM with `include_vpc_write_permissions = false` only. Custom role with read and join access to your virtual network. Assigned by `azure-per-infra-iam` |
 
 ## Requirements

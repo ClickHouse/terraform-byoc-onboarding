@@ -21,6 +21,24 @@ variable "include_iam_write_permissions" {
   default     = true
 }
 
+variable "maintenance_mode" {
+  type        = bool
+  description = "(Optional) Set to `true` after ClickHouse has provisioned every infra in `maintenance_infras`. The ClickHouse BYOC Provisioner role on the subscription then keeps only `Microsoft.Resources/subscriptions/providers/read`, and ClickHouse gets a minimal set of roles on the existing resources of each infra to operate it. Set it back to `false` before you create or delete an infra, or enable a feature (TDE, autoscaling, named collections, private API server) on one. Not supported yet with `include_iam_write_permissions = false` or `include_vpc_write_permissions = false`. Defaults to false."
+  default     = false
+}
+
+variable "maintenance_infras" {
+  type        = list(string)
+  description = "(Optional) The spoken names of every BYOC infra in this subscription (for example `[\"infra-ab-123\"]`), provided by ClickHouse. Required with `maintenance_mode = true`: an infra that is not in the list loses its permissions. Defaults to `[]`."
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for n in var.maintenance_infras : can(regex("^[a-z0-9][a-z0-9-]{0,15}$", n))])
+    error_message = "Each maintenance_infras entry must be the lowercase spoken name provided by ClickHouse (at most 16 characters of a-z, 0-9 and -)."
+  }
+}
+
 variable "include_tde_permissions" {
   type        = bool
   description = "(Optional) Whether to let ClickHouse provision the BYOC+TDE shared resources in this subscription: one TDE delegate managed identity and one default Key Vault + RSA key (KEK) per infra, wrapping the data-encryption keys of TDE-enabled ClickHouse instances. Deliberately grants no vault/key delete or purge and no cryptographic use of the keys — ClickHouse can never destroy or use your key material with this role. Defaults to false; enable before turning on TDE for an infra."
