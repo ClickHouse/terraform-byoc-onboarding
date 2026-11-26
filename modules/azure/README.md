@@ -70,6 +70,45 @@ Replace `<version>` with the latest tag from the module's
 | include_iam_write_permissions | (Optional) Whether to let ClickHouse create and delete the per-infra managed identities, custom role definitions and role assignments. Set to `false` when you bring your own IAM (BYO-IAM). See [Bring your own IAM](#bring-your-own-iam-byo-iam) | bool | `true` | no |
 | include_tde_permissions | (Optional) Whether to let ClickHouse provision the BYOC+TDE shared resources in this subscription: one TDE delegate managed identity and one default Key Vault + RSA key (KEK) per infra. Grants no vault/key delete or purge and no cryptographic use of the keys — ClickHouse can never destroy or use your key material with this role. Set to `true` before enabling TDE for an infra | bool | `false` | no |
 
+## Bring your own virtual network (BYO-VNet)
+
+If you pre-create and manage the virtual network yourself, set `include_vpc_write_permissions = false`. ClickHouse then does **not** get permissions to create, delete, or modify the network topology (the virtual network, its subnets, and the NAT egress path — public IPs and NAT gateways), but keeps read access to it and `Microsoft.Network/virtualNetworks/subnets/join/action` so AKS can join your subnets. ClickHouse still creates and manages the resources it owns inside your network — the AKS cluster, and the Private Link Service that fronts it — so PrivateLink and load balancers keep working. (Under BYO-IAM, this read-and-join access is the `ClickHouse BYOC Network User` role, assigned by [`azure-per-infra-iam`](../azure-per-infra-iam/) on your virtual network's resource group — see [Bring your own IAM](#bring-your-own-iam-byo-iam).)
+
+```hcl
+module "clickhouse_onboarding" {
+  source                        = "github.com/ClickHouse/terraform-byoc-onboarding.git//modules/azure?ref=<version>"
+  include_vpc_write_permissions = false
+}
+```
+
+### The subnets you create
+
+Create one virtual network with the subnets below. ClickHouse validates their shape up front (a preflight check) and fails fast with the specific reason if one is wrong, so it is worth getting these exactly right before you hand them over.
+
+| Subnet | Minimum size | Delegation | Also required |
+|--------|--------------|------------|---------------|
+| **node** | `/27` (a /27 or larger range, e.g. /24 — a /28 is too small) | **none** | The AKS egress path for your `outboundType` — see below. |
+| **pod** | `/25` | `Microsoft.ContainerService/managedClusters` | Azure CNI gives every pod a real VNet IP, so size this for your target pod count. |
+| **apiserver** (optional, for a private API server) | `/28` | `Microsoft.ContainerService/managedClusters` | Used only for [API Server VNet Integration](https://learn.microsoft.com/en-us/azure/aks/api-server-vnet-integration); nothing else joins it. |
+| **privatelink** (optional, for PrivateLink) | `/28` | **none** | `privateLinkServiceNetworkPolicies = Disabled`, so the istio-ingress Private Link Service can be created. |
+
+All subnets must belong to the virtual network you bring. Sizes are minimums — larger ranges are fine and recommended for the node and pod subnets.
+
+### Egress (`outboundType`)
+
+Unlike EKS and GKE, AKS needs its egress mode stated explicitly, so you choose how the nodes reach the internet and prepare the node subnet to match:
+
+- **`userAssignedNATGateway`** (the default when you set nothing): attach a **NAT gateway** to the node subnet. Create a Standard public IP and a NAT gateway (zone-redundant is recommended), and associate the NAT gateway with the node subnet.
+- **`userDefinedRouting`**: attach a **route table** to the node subnet with a `0.0.0.0/0` route to your firewall or NVA (for example Azure Firewall). Use this when all egress must go through your own inspection point.
+
+### AKS service CIDR
+
+The AKS service CIDR (the in-cluster `ClusterIP` range, default `10.0.0.0/16`) **must not overlap** your virtual network or any of its subnets, or in-cluster service IPs collide with pod and node IPs. If your network uses `10.0.0.0/16`, set a non-overlapping service CIDR when you create the infra.
+
+### Handing the network to ClickHouse
+
+When you create the BYOC infra, give ClickHouse the virtual network resource ID and the subnet resource IDs (node, pod, and — if used — API-server and PrivateLink), your `outboundType`, and a non-overlapping service CIDR. ClickHouse observes the network at those IDs instead of creating one.
+
 ## Bring your own IAM (BYO-IAM)
 
 With the default `include_iam_write_permissions = true`, ClickHouse creates the managed identities, custom role definitions and role assignments of each BYOC infra. To keep these in your control, do these steps:
