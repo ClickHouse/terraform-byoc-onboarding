@@ -186,4 +186,12 @@ resource "google_service_account_iam_member" "workload_identity_binder" {
   service_account_id = google_service_account.this[each.key].name
   role               = local.workload_identity_binder_role
   member             = each.value
+
+  # Without this condition the binder could grant any role on the service account, for example
+  # serviceAccountTokenCreator to itself.
+  condition {
+    title       = "clickhouse-${var.spoken_name}-wi-binder-only"
+    description = "Grant or revoke roles/iam.workloadIdentityUser only"
+    expression  = "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly(['roles/iam.workloadIdentityUser'])"
+  }
 }

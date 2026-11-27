@@ -72,6 +72,8 @@ A Workload Identity member names a Kubernetes service account in the GKE cluster
 | `<spoken>-kmf` | `clickhouse-management` |
 | `<spoken>-monitoring` | `clickhouse-management` |
 
+An IAM Condition limits each binder binding to granting or revoking `roles/iam.workloadIdentityUser` only.
+
 GCP IAM cannot limit which member the binder adds. We recommend the organization policy `iam.disableServiceAccountKeyCreation` on the project.
 
 ### Restore from another infra
